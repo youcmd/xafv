@@ -1,0 +1,4 @@
+av
+Pillow
+mutagen
+numpy
