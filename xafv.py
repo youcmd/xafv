@@ -280,6 +280,10 @@ def is_video_with_audio(path):
         return has_video, has_audio
     finally:
         c.close()
+        
+def is_supported_for_embedding(audio_path):
+    ext = os.path.splitext(audio_path)[1].lower()
+    return ext in (".m4a", ".mp4", ".m4b", ".m4r", ".opus")
 
 if __name__ == "__main__":
     import traceback
@@ -313,16 +317,18 @@ if __name__ == "__main__":
         print("Extracting audio...")
         audio_out = extract_audio_pure_python(video_in)
         print("Audio saved to:", audio_out)
-
-        print("Extracting non-solid frame at 10%...")
-        image_out = extract_non_solid_frame(video_in, percent=0.1)
-        print("Image saved to:", image_out)
-
-        print("Embedding cover into audio...")
-        embed_cover(audio_out, image_out, max_image_side=max_image_side)
-        print("Done. Cover embedded into:", audio_out)
+        
+        if is_supported_for_embedding(audio_out):
+            print("Extracting non-solid frame at 10%...")
+            image_out = extract_non_solid_frame(video_in, percent=0.1)
+            print("Image saved to:", image_out)
+            
+            print("Embedding cover into audio...")
+            embed_cover(audio_out, image_out, max_image_side=max_image_side)
+            print("Done. Cover embedded into:", audio_out)
 
     except Exception as e:
         print("An error occurred:")
         traceback.print_exc()
         sys.exit(10)
+
