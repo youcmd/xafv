@@ -2,9 +2,6 @@ name: Build Binary
 
 on:
   push:
-    tags:
-      - 'v*' # Trigger on version tags
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -12,7 +9,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest]
 
     steps:
       - name: Checkout code
@@ -23,14 +20,40 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller -r requirements.txt
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
-      - name: Build with PyInstaller
+      - name: Install build dependencies Linux macOS
+        if: matrix.os != 'windows-latest'
         run: |
-          pyinstaller --onefile --clean --name xafv xafv.py
+          python -m pip install --upgrade pip setuptools wheel
+          pip install nuitka
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Install build dependencies Windows
+        if: matrix.os == 'windows-latest'
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install nuitka
+          if exist requirements.txt pip install -r requirements.txt
+          choco install mingw -y || echo "choco install mingw failed, ensure MSVC or MinGW is available"
+
+      - name: Build with Nuitka
+        run: |
+          # Clean previous outputs
+          rm -rf dist build || powershell -Command "Remove-Item -Recurse -Force dist,build" || true
+          # Build single-file binary. Adjust flags as needed for your project.
+          python -m nuitka --onefile --remove-output --output-dir=dist --name=xafv xafv.py
+
+      - name: List dist contents
+        run: |
+          echo "Artifacts in dist:"
+          ls -la dist || dir dist
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
