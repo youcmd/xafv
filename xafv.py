@@ -10,6 +10,7 @@ import sys
 import os
 import av
 import base64
+from pathlib import Path
 from io import BytesIO
 from PIL import Image
 import numpy as np
@@ -20,12 +21,13 @@ from mutagen.flac import Picture
 # -------------------------
 # Audio extraction (remux)
 # -------------------------
-def extract_audio_pure_python(input_video, output_folder="."):
+def extract_audio_pure_python(input_path, output_folder="."):
     """Remux first audio stream from input_video into an output file and return its path."""
-    if not os.path.isfile(input_video):
-        raise FileNotFoundError(f"Input not found: {input_video}")
+    src_path = Path(input_path).resolve()
+    if not os.path.isfile(src_path):
+        raise FileNotFoundError(f"Input not found: {src_path}")
 
-    container = av.open(input_video)
+    container = av.open(src_path)
     try:
         audio_stream = next((s for s in container.streams if s.type == "audio"), None)
         if audio_stream is None:
@@ -38,10 +40,10 @@ def extract_audio_pure_python(input_video, output_folder="."):
             "pcm_s16le": "wav"
         }
         ext = extension_map.get(codec_name, codec_name)
-        base_name = os.path.splitext(os.path.basename(input_video))[0]
-        output_filename = os.path.join(output_folder, f"{base_name}.{ext}")
+        output_name = f"{src_path.stem}.{ext}"
+        output_path = src_path.parent / output_name
 
-        out_container = av.open(output_filename, mode="w")
+        out_container = av.open(output_path, mode="w")
         try:
             # create output stream with codec name (positional arg)
             out_stream = out_container.add_stream(codec_name)
@@ -72,7 +74,7 @@ def extract_audio_pure_python(input_video, output_folder="."):
     finally:
         container.close()
 
-    return output_filename
+    return output_path
 
 # -------------------------
 # Frame extraction + solid check
@@ -95,12 +97,13 @@ def extract_non_solid_frame(input_path, percent=0.1, output_path=None,
                             image_format="png", max_attempts=7, step_seconds=0.5,
                             tolerance=5, unique_color_threshold=10):
     """Extract a non-solid frame near percent of duration. Returns saved image path."""
-    if not os.path.isfile(input_path):
-        raise FileNotFoundError(f"Input not found: {input_path}")
+    src_path = Path(input_path).resolve()
+    if not os.path.isfile(src_path):
+        raise FileNotFoundError(f"Input not found: {src_path}")
     if not (0.0 <= percent <= 1.0):
         raise ValueError("percent must be between 0.0 and 1.0")
 
-    container = av.open(input_path)
+    container = av.open(src_path)
     try:
         stream = next((s for s in container.streams if s.type == "video"), None)
         if stream is None:
@@ -127,7 +130,8 @@ def extract_non_solid_frame(input_path, percent=0.1, output_path=None,
             mult = (i + 1) // 2
             offsets.append(sign * mult * step_seconds)
 
-        base = os.path.splitext(os.path.basename(input_path))[0]
+        output_name = f"{src_path.stem}"
+        base = src_path.parent / output_name
         first_attempt_path = None
         saved_path = None
 
@@ -331,4 +335,5 @@ if __name__ == "__main__":
         print("An error occurred:")
         traceback.print_exc()
         sys.exit(10)
+
 
