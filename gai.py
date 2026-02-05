@@ -66,7 +66,9 @@ def verify(input_file):
     else:
         print(f'Failed to verify: {input_file}')
 
-def get_base_sample_rate(rate):
+def get_base_sample_rate(rate: int) -> int:
+    if rate < 44100:
+        return rate
     if rate % 44100 == 0:
         return 44100
     elif rate % 48000 == 0:
