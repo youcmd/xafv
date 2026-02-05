@@ -23,7 +23,7 @@ def get_audio_info(input_file, o=False):
         calc_bitrate = int(audio_track.bit_rate) if audio_track.bit_rate else None
       
     sample_rate_value = int(audio_track.sampling_rate) if audio_track.sampling_rate else 48000
-    base_sample_rate = get_base_sample_rate(get_base_sample_rate)
+    base_sample_rate = get_base_sample_rate(sample_rate_value)
     bit_depth_value = "N/A (Lossy)" if audio_track.compression_mode == "Lossy" else int(audio_track.bit_depth or audio_track.bit_resolution or 16)
 
     info = {
