@@ -5,6 +5,8 @@ on:
     tags:
       - 'v*' # Trigger on version tags
     branches: [ main ]
+    paths:
+      - 'main.py'
   workflow_dispatch:
 
 jobs:
