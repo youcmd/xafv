@@ -41,7 +41,7 @@ def extract_audio(input_file):
                 ext = ext_map.get(codec, 'mka')
                 
                 suffix = f"_track{audio_count}" if audio_count > 0 else ""
-                output_name = f"{src_path.stem}{suffixt}.{ext}"
+                output_name = f"{src_path.stem}{suffix}.{ext}"
                 output_path = src_path.parent / output_name
                 cover_path = src_path.parent / f"{src_path.stem}_cover.png"
 
@@ -111,4 +111,5 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python extract_audio.py <video_file>")
     else:
+
         extract_audio(sys.argv[1])
