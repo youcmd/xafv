@@ -47,7 +47,15 @@ def analyze_phase(file_path: str,
         # helper to run volumedetect and extract mean_volume
         def mean_volume(path: Path) -> Optional[float]:
             cmd = [ffmpeg_cmd, "-hide_banner", "-nostats", "-y", "-i", str(path), "-af", "volumedetect", "-f", "null", "-"]
-            proc = subprocess.run(cmd, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            proc = subprocess.run(
+                cmd, 
+                check=False, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE, 
+                text=True, 
+                encoding="utf-8", 
+                errors="replace"
+            )
             out = proc.stderr + proc.stdout
             # common volumedetect line: "mean_volume: -21.0 dB"
             m = re.search(r"mean_volume\s*[:=]?\s*([-+]?\d+(?:\.\d+)?)\s*dB", out, re.IGNORECASE)
@@ -166,3 +174,4 @@ def isnophaseinv(file_path: str, Verbose: bool = False):
         except Exception:
             pass
     return False
+
