@@ -87,7 +87,7 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         bit_depth_mismatch = (bit_depth == 16 and bd != 16) or (bit_depth == 24 and bd > 24)
         
         # if resample_needed or bit_depth_mismatch or (bd >= 24 and bd != bit_depth):
-        if resample_needed or bit_depth_mismatch or 'flt' in fmt or 's32' in fmt:
+        if resample_needed or bit_depth_mismatch or 'flt' in fmt or 's32' in fmt or bd > 32:
             if bit_depth != bd: dither = "shibata" if bit_depth == 16 else "triangular"
             osf = "s16" if bit_depth == 16 else "s32"
             pcm = "pcm_s16le" if bit_depth == 16 else "pcm_s24le"
@@ -122,11 +122,11 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
             npi_status = "forced-on"
 
         # Opus strictly handles float; if it's already float or simple enough, opusenc handles it
-        if fmt != "s32" and sr == 48000:
+        if fmt != "s32" and sr == 48000 and bd <= 32:
             cmd = (f'opusenc --quiet {br_arg} {opus_npi} "{input_path}" "{output_path}"')
             run_command(cmd)
             # run_command(['opusenc',"--quiet", br_arg, opus_npi, input_path, output_path])
-        elif target_sr != 48000 or sr > 48000 or 's32' in fmt:
+        elif target_sr != 48000 or sr > 48000 or 's32' in fmt or bd > 32:
             cmd = (f'/content/ffmpeg -hide_banner -v quiet -i "{input_path}" '
                    f'-af "{vol_filter}aresample=48000:resampler=soxr:cutoff=1:precision=33:dither_method=none:osf=flt" '
                    f'-c:a pcm_f32le -f wav - | opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
