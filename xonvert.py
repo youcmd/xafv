@@ -47,15 +47,6 @@ def get_audio_info(input_file):
         'kbps': f'{round(calc_bitrate / 1000)}kbps' if calc_bitrate > 0 else 'N/A'
     }
 
-def run_command(command):
-    """Executes the shell command."""
-    print(f"Executing: {' '.join(command) if isinstance(command, list) else command}")
-    use_shell = isinstance(command, str)
-    try:
-        subprocess.run(command, shell=use_shell, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Command failed: {e}")
-
 def get_base_sample_rate(rate: int) -> int: # 88.2 > 44.1 or 96 > 48
     if rate < 44100:
         return rate
@@ -65,6 +56,18 @@ def get_base_sample_rate(rate: int) -> int: # 88.2 > 44.1 or 96 > 48
         return 48000
     else:
         return 48000
+
+def db_to_percent(db):
+    return  10 ** (db / 20)
+
+def run_command(command):
+    """Executes the shell command."""
+    print(f"Executing: {' '.join(command) if isinstance(command, list) else command}")
+    use_shell = isinstance(command, str)
+    try:
+        subprocess.run(command, shell=use_shell, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Command failed: {e}")
 
 def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, preamp=0, phase_inv_mode="scan", show_log=True):
     info = get_audio_info(input_path)
@@ -79,22 +82,24 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
     needs_ffmpeg = False
     dither = "none"
     vol_filter = f"volume={preamp}dB," if preamp and float(preamp) != 0.0 else ""
+    preamp_v = db_to_percent(preamp)
     logs = []
 
     if codec == 'flac': #WIP
         # Check if we need resampling or bit depth change
         resample_needed = sr != target_sr
         bit_depth_mismatch = (bit_depth == 16 and bd != 16) or (bit_depth == 24 and bd > 24)
+        dither = "dither" if (bit_depth > 24) else ("dither -s" if (bit_depth > 16) else "")
         
-        # if resample_needed or bit_depth_mismatch or (bd >= 24 and bd != bit_depth):
-        if resample_needed or bit_depth_mismatch or 'flt' in fmt or 's32' in fmt or bd > 32:
-            if bit_depth != bd: dither = "shibata" if bit_depth == 16 else "triangular"
-            osf = "s16" if bit_depth == 16 else "s32"
-            pcm = "pcm_s16le" if bit_depth == 16 else "pcm_s24le"
-            
-            cmd = (f'/content/ffmpeg -hide_banner -v quiet -i "{input_path}" '
-                   f'-af "{vol_filter}aresample={target_sr}:resampler=soxr:cutoff=1:precision=33:dither_method={dither}:osf={osf}" '
-                   f'-c:a {pcm} -f wav - | flac -s -V -f -o "{output_path}" -')
+        if bd > 32 or 'flt' in fmt:            
+            cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" '
+                   f'-af "volume={preamp}dB" '
+                   f'-f sox - | sox -p -e signed-integer -b {bit_depth} -t wav -L - rate -v {target_sr} {dither} | flac -s -V -f -o "{output_path}" -')
+            run_command(cmd)
+        elif resample_needed or bit_depth_mismatch or 'flt' in fmt or 's32' in fmt:
+            cmd = (f'sox -v {preamp_v} "{input_path}" -e signed-integer -b {bit_depth} -t wav -L - rate -v {target_sr} {dither}'
+                    ' | '
+                   f'flac -s -V -f -o "{output_path}" -')
             run_command(cmd)
         else:
             run_command(['flac', '-s', '-V', '-f', '-o', output_path, input_path])
@@ -146,9 +151,9 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
 
 def main():
     parser = argparse.ArgumentParser(description="Custom Audio Converter Wrapper")
-    parser.add_argument('-a:c', '--codec', choices=['flac', 'opus'], required=True, help="Output codec")
-    parser.add_argument('-a:b', '-a:bd', '--bitdepth', type=int, choices=[16, 24], default=16, help="Bit depth (FLAC only)")
-    parser.add_argument('-b', '-a:br', '--bitrate', type=int, help="Bitrate in kbps (Opus only)")
+    parser.add_argument('-c', '--codec', choices=['flac', 'opus'], required=True, help="Output codec")
+    parser.add_argument('-d', '--bitdepth', type=int, choices=[16, 24], default=16, help="Bit depth (FLAC only)")
+    parser.add_argument('-b', '--bitrate', type=int, help="Bitrate in kbps (Opus only)")
     parser.add_argument('-i', '--input', required=True, help="Input file path")
     parser.add_argument('-o', '--output', required=True, help="Output file path")
     parser.add_argument('-vol', '--preamp', type=float, default=0.0, help="Volume adjustment in dB (e.g., -3 or 1.5)")
