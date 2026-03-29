@@ -139,7 +139,7 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         out_info = get_audio_info(output_path)
         logs.append(f"opus: {out_info['kbps']}kbps npi:{npi_status}.")
     
-    logs.append(f"source:{input_path} b:{bd} s:{sr}.")
+    logs.append(f"b:{bd} s:{sr} preamp:{preamp}.")
 
     if show_log:
         print(" ".join(logs))
@@ -147,15 +147,12 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
 def main():
     parser = argparse.ArgumentParser(description="Custom Audio Converter Wrapper")
     parser.add_argument('-a:c', '--codec', choices=['flac', 'opus'], required=True, help="Output codec")
-    parser.add_argument('-a:b', '--bitdepth', type=int, choices=[16, 24], default=16, help="Bit depth (FLAC only)")
-    parser.add_argument('-b', '--bitrate', type=int, help="Bitrate in kbps (Opus only)")
+    parser.add_argument('-a:b', '-a:bd', '--bitdepth', type=int, choices=[16, 24], default=16, help="Bit depth (FLAC only)")
+    parser.add_argument('-b', '-a:br', '--bitrate', type=int, help="Bitrate in kbps (Opus only)")
     parser.add_argument('-i', '--input', required=True, help="Input file path")
     parser.add_argument('-o', '--output', required=True, help="Output file path")
     parser.add_argument('-vol', '--preamp', type=float, default=0.0, help="Volume adjustment in dB (e.g., -3 or 1.5)")
-    parser.add_argument('-pi', '--phase-inv', 
-                            choices=['on', 'scan', 'off'], 
-                            default='scan', 
-                            help="Control Opus phase inversion (default: scan)")
+    parser.add_argument('-pi', '--phase-inv', choices=['on', 'scan', 'off'], default='scan', help="Control Opus phase inversion (default: scan)")
                             
     args = parser.parse_args()
     # process_audio(args.codec, args.bitdepth, args.input, args.output, args.preamp)
