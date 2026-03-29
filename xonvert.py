@@ -49,14 +49,12 @@ def get_audio_info(input_file):
 
 def run_command(command):
     """Executes the shell command."""
-    # print(f"Executing: {' '.join(command) if isinstance(command, list) else command}")
+    print(f"Executing: {' '.join(command) if isinstance(command, list) else command}")
+    use_shell = isinstance(command, str)
     try:
-        if "|" in str(command):
-            subprocess.run(command, shell=True, check=True)
-        else:
-            subprocess.run(command, check=True)
+        subprocess.run(command, shell=use_shell, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"Command failed with error: {e}")
+        print(f"Command failed: {e}")
 
 def get_base_sample_rate(rate: int) -> int: # 88.2 > 44.1 or 96 > 48
     if rate < 44100:
@@ -125,16 +123,18 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
 
         # Opus strictly handles float; if it's already float or simple enough, opusenc handles it
         if fmt != "s32" and sr == 48000:
-            cmd = f'opusenc --quiet {br_arg} {opus_npi} "{input_path}" "{output_path}"'
+            cmd = (f'opusenc --quiet {br_arg} {opus_npi} "{input_path}" "{output_path}"')
             run_command(cmd)
+            # run_command(['opusenc',"--quiet", br_arg, opus_npi, input_path, output_path])
         elif target_sr != 48000 or sr > 48000 or 's32' in fmt:
             cmd = (f'/content/ffmpeg -hide_banner -v quiet -i "{input_path}" '
                    f'-af "{vol_filter}aresample=48000:resampler=soxr:cutoff=1:precision=33:dither_method=none:osf=flt" '
                    f'-c:a pcm_f32le -f wav - | opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
             run_command(cmd)
         else:
-            cmd = f'opusenc --quiet {br_arg} {opus_npi} "{input_path}" "{output_path}"'
+            cmd = (f'opusenc --quiet {br_arg} {opus_npi} "{input_path}" "{output_path}"')
             run_command(cmd)
+            # run_command(['opusenc',"--quiet", f"{br_arg}", f"{opus_npi}", input_path, output_path])
         
         out_info = get_audio_info(output_path)
         logs.append(f"opus: {out_info['kbps']}kbps npi:{npi_status}.")
