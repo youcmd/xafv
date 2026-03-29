@@ -80,7 +80,7 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
     # print(f"{fmt}_{bd}:{sr} > {bit_depth}:{target_sr}")
 
     needs_ffmpeg = False
-    dither = "none"
+    # dither = "none"
     vol_filter = f"volume={preamp}dB," if preamp and float(preamp) != 0.0 else ""
     preamp_v = db_to_percent(preamp)
     logs = []
@@ -89,14 +89,14 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         # Check if we need resampling or bit depth change
         resample_needed = sr != target_sr
         bit_depth_mismatch = (bit_depth == 16 and bd != 16) or (bit_depth == 24 and bd > 24)
-        dither = "dither" if (bit_depth > 24) else ("dither -s" if (bit_depth > 16) else "")
-        
+        dither = "dither" if (bit_depth == 24 and bd > 24) else ("dither -s" if (bit_depth == 16 and bd > 16) else "")
+
         if bd > 32 or 'flt' in fmt:            
             cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" '
                    f'-af "volume={preamp}dB" '
                    f'-f sox - | sox -p -e signed-integer -b {bit_depth} -t wav -L - rate -v {target_sr} {dither} | flac -s -V -f -o "{output_path}" -')
             run_command(cmd)
-        elif resample_needed or bit_depth_mismatch or 'flt' in fmt or 's32' in fmt:
+        elif resample_needed or bit_depth_mismatch or 'flt' in fmt or 's32' in fmt or float(preamp) != 0.0:
             cmd = (f'sox -v {preamp_v} "{input_path}" -e signed-integer -b {bit_depth} -t wav -L - rate -v {target_sr} {dither}'
                     ' | '
                    f'flac -s -V -f -o "{output_path}" -')
