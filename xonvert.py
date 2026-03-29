@@ -111,6 +111,7 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
 
     elif codec == 'opus':
         br_arg = f"--bitrate {bitrate}" if bitrate else ""
+        rate_arg = "rate -v 48000" if (sr != 48000) else ""
         # --- NPI Logic ---
         opus_npi = ""
         npi_status = "on"
@@ -127,14 +128,19 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
             npi_status = "forced-on"
 
         # Opus strictly handles float; if it's already float or simple enough, opusenc handles it
-        if fmt != "s32" and sr == 48000 and bd <= 32:
+        if fmt != "s32" and sr == 48000 and bd <= 32 and float(preamp) == 0.0 :
             cmd = (f'opusenc --quiet {br_arg} {opus_npi} "{input_path}" "{output_path}"')
             run_command(cmd)
             # run_command(['opusenc',"--quiet", br_arg, opus_npi, input_path, output_path])
-        elif target_sr != 48000 or sr > 48000 or 's32' in fmt or bd > 32:
-            cmd = (f'/content/ffmpeg -hide_banner -v quiet -i "{input_path}" '
-                   f'-af "{vol_filter}aresample=48000:resampler=soxr:cutoff=1:precision=33:dither_method=none:osf=flt" '
-                   f'-c:a pcm_f32le -f wav - | opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
+        elif target_sr != 48000 or sr > 48000 or 's32' in fmt or bd > 32 or float(preamp) != 0.0:
+            if 'flt' in fmt:
+                cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" '
+                   f'-af "volume={preamp}dB" '
+                   f'-f sox - | sox -p -D -e floating-point -b 32 -t wav -L - {rate_arg} | opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
+            else:
+                cmd = (f'sox -v {preamp_v} "{input_path}" -D -e floating-point -b 32 -t wav -L - {rate_arg}'
+                   f' | '
+                   f'opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
             run_command(cmd)
         else:
             cmd = (f'opusenc --quiet {br_arg} {opus_npi} "{input_path}" "{output_path}"')
