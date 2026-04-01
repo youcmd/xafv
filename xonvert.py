@@ -94,15 +94,15 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         if bd > 32 or 'flt' in fmt:            
             cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" '
                    f'-af "volume={preamp}dB" '
-                   f'-f sox - | sox -p -e signed-integer -b {bit_depth} -t wav -L - rate -v {target_sr} {dither} | flac -s -V -f -o "{output_path}" -')
+                   f'-f sox - | sox -p -e signed-integer -b {bit_depth} -t wav -L - rate -v {target_sr} {dither} | flac -8 -p -s -V -f -o "{output_path}" -')
             run_command(cmd)
         elif resample_needed or bit_depth_mismatch or 'flt' in fmt or 's32' in fmt or float(preamp) != 0.0:
             cmd = (f'sox -v {preamp_v} "{input_path}" -e signed-integer -b {bit_depth} -t wav -L - rate -v {target_sr} {dither}'
                     ' | '
-                   f'flac -s -V -f -o "{output_path}" -')
+                   f'flac -8 -p -s -V -f -o "{output_path}" -')
             run_command(cmd)
         else:
-            run_command(['flac', '-s', '-V', '-f', '-o', output_path, input_path])
+            run_command(['flac', '-8', '-p', '-s', '-V', '-f', '-o', output_path, input_path])
         
         # Log results
         out_info = get_audio_info(output_path)
