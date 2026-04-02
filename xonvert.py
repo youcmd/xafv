@@ -26,7 +26,6 @@ def get_audio_info(input_file):
     # Calculate Bitrate (bps)
     stream_size = int(audio_track.stream_size) if audio_track.stream_size else file_size
     if stream_size and duration_ms > 0:
-        # duration is in ms, so (size * 8) / (ms / 1000)
         calc_bitrate = (stream_size * 8) / (duration_ms / 1000)
     else:
         calc_bitrate = int(audio_track.bit_rate) if audio_track.bit_rate else 0
@@ -75,12 +74,10 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
     fmt = info['sample_fmt']
     bd = info['bit_depth']
     
-    # Logic for target sample rate
     target_sr = get_base_sample_rate(sr)
     # print(f"{fmt}_{bd}:{sr} > {bit_depth}:{target_sr}")
 
     needs_ffmpeg = False
-    # dither = "none"
     vol_filter = f"volume={preamp}dB," if preamp and float(preamp) != 0.0 else ""
     preamp_v = db_to_percent(preamp)
     logs = []
@@ -145,7 +142,6 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         else:
             cmd = (f'opusenc --quiet {br_arg} {opus_npi} "{input_path}" "{output_path}"')
             run_command(cmd)
-            # run_command(['opusenc',"--quiet", f"{br_arg}", f"{opus_npi}", input_path, output_path])
         
         out_info = get_audio_info(output_path)
         logs.append(f"opus: {out_info['kbps']}kbps npi:{npi_status}.")
@@ -164,9 +160,8 @@ def main():
     parser.add_argument('-o', '--output', required=True, help="Output file path")
     parser.add_argument('-vol', '--preamp', type=float, default=0.0, help="Volume adjustment in dB (e.g., -3 or 1.5)")
     parser.add_argument('-pi', '--phase-inv', choices=['on', 'scan', 'off'], default='scan', help="Control Opus phase inversion (default: scan)")
-                            
+    
     args = parser.parse_args()
-    # process_audio(args.codec, args.bitdepth, args.input, args.output, args.preamp)
     process_audio(args.codec, args.bitdepth, args.input, args.output, args.bitrate, args.preamp, args.phase_inv)
 
 if __name__ == "__main__":
