@@ -76,10 +76,11 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
     
     target_sr = get_base_sample_rate(sr)
     # print(f"{fmt}_{bd}:{sr} > {bit_depth}:{target_sr}")
-
-    needs_ffmpeg = False
-    vol_filter = f"volume={preamp}dB," if preamp and float(preamp) != 0.0 else ""
-    preamp_v = db_to_percent(preamp)
+    
+    vol_filter = f'-af "volume={preamp}dB" ' if preamp and float(preamp) != 0.0 else ""
+    preamp_percent = db_to_percent(preamp)
+    vol = f"-v {preamp_percent}" if preamp and float(preamp) != 0.0 else ""
+    
     logs = []
 
     if codec == 'flac': #WIP
@@ -89,13 +90,11 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         dither = "dither" if (bit_depth == 24 and bd > 24) else ("dither -s" if (bit_depth == 16 and bd > 16) else "")
 
         if bd > 32 or 'flt' in fmt:            
-            cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" '
-                   f'-af "volume={preamp}dB" '
+            cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" {vol_filter}'
                    f'-f sox - | sox -p -e signed-integer -b {bit_depth} -t wav -L - rate -v {target_sr} {dither} | flac -8 -p -s -V -f -o "{output_path}" -')
             run_command(cmd)
         elif resample_needed or bit_depth_mismatch or 'flt' in fmt or 's32' in fmt or float(preamp) != 0.0:
-            cmd = (f'sox -v {preamp_v} "{input_path}" -e signed-integer -b {bit_depth} -t wav -L - rate -v {target_sr} {dither}'
-                    ' | '
+            cmd = (f'sox {vol} "{input_path}" -e signed-integer -b {bit_depth} -t wav -L - rate -v {target_sr} {dither} | '
                    f'flac -8 -p -s -V -f -o "{output_path}" -')
             run_command(cmd)
         else:
@@ -108,11 +107,10 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
 
     elif codec == 'opus':
         br_arg = f"--bitrate {bitrate}" if bitrate else ""
-        rate_arg = "rate -v 48000" if (sr != 48000) else ""
+        rate_arg = "rate -v 48000" if (44100 < sr != 48000) else ""
         # --- NPI Logic ---
         opus_npi = ""
         npi_status = "on"
-
         if phase_inv_mode == "on":
             opus_npi = ""
             npi_status = "forced-off"
@@ -131,12 +129,13 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
             # run_command(['opusenc',"--quiet", br_arg, opus_npi, input_path, output_path])
         elif target_sr != 48000 or sr > 48000 or 's32' in fmt or bd > 32 or float(preamp) != 0.0:
             if 'flt' in fmt:
-                cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" '
-                   f'-af "volume={preamp}dB" '
-                   f'-f sox - | sox -p -D -e floating-point -b 32 -t wav -L - {rate_arg} | opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
+                cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" {vol_filter}'
+                   f'-f sox - | sox -p -D -e floating-point -b 32 -L -t wav - {rate_arg} | opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
+            elif 's32' in fmt:
+                cmd = (f'sox {vol} "{input_path}" -D -e floating-point -b 32 -L -t wav - {rate_arg} | '
+                   f'opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
             else:
-                cmd = (f'sox -v {preamp_v} "{input_path}" -D -e floating-point -b 32 -t wav -L - {rate_arg}'
-                   f' | '
+                cmd = (f'sox {vol} "{input_path}" -D -L -t wav - {rate_arg} | '
                    f'opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
             run_command(cmd)
         else:
