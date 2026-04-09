@@ -88,13 +88,14 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         resample_needed = sr != target_sr
         bit_depth_mismatch = (bit_depth == 16 and bd != 16) or (bit_depth == 24 and bd > 24)
         dither = "dither" if (bit_depth == 24 and bd > 24) else ("dither -s" if (bit_depth == 16 and bd > 16) else "")
+        rate_arg = f"rate -v {target_sr} {dither}" if (sr != target_sr) else ""
 
         if bd > 32 or 'flt' in fmt:            
             cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" {vol_filter}'
-                   f'-f sox - | sox -p -e signed-integer -b {bit_depth} -t wav -L - rate -v {target_sr} {dither} | flac -8 -p -s -V -f -o "{output_path}" -')
+                   f'-f sox - | sox -p -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | flac -8 -p -s -V -f -o "{output_path}" -')
             run_command(cmd)
         elif resample_needed or bit_depth_mismatch or 'flt' in fmt or 's32' in fmt or float(preamp) != 0.0:
-            cmd = (f'sox {vol} "{input_path}" -e signed-integer -b {bit_depth} -t wav -L - rate -v {target_sr} {dither} | '
+            cmd = (f'sox {vol} "{input_path}" -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | '
                    f'flac -8 -p -s -V -f -o "{output_path}" -')
             run_command(cmd)
         else:
