@@ -124,7 +124,7 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
             npi_status = "forced-on"
 
         # Opus strictly handles float; if it's already float or simple enough, opusenc handles it
-        if fmt != "s32" and sr == 48000 and bd <= 32 and float(preamp) == 0.0 :
+        if fmt != "s32" and sr <= 48000 and bd <= 32 and float(preamp) == 0.0 :
             cmd = (f'opusenc --quiet {br_arg} {opus_npi} "{input_path}" "{output_path}"')
             run_command(cmd)
             # run_command(['opusenc',"--quiet", br_arg, opus_npi, input_path, output_path])
