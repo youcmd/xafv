@@ -57,7 +57,7 @@ def get_base_sample_rate(rate: int) -> int: # 88.2 > 44.1 or 96 > 48
         return 48000
 
 def db_to_percent(db):
-    return  10 ** (db / 20)
+    return  round(10 ** (db / 20),4)
 
 def run_command(command):
     """Executes the shell command."""
@@ -90,8 +90,12 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         dither = "dither" if (bit_depth == 24 and bd > 24) else ("dither -s" if (bit_depth == 16 and bd > 16) else "")
         rate_arg = f"rate -v {target_sr} {dither}" if (sr != target_sr) else ""
 
-        if bd > 32 or 'flt' in fmt:            
-            cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" {vol_filter}'
+        if bd > 32 or 'flt' in fmt:
+            if float(preamp) == 0.0:
+                cmd = (f'sox {vol} "{input_path}" -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | '
+                       f'flac -8 -p -s -V -f -o "{output_path}" -')
+            else:
+                cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" {vol_filter}'
                    f'-f sox - | sox -p -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | flac -8 -p -s -V -f -o "{output_path}" -')
             run_command(cmd)
         elif resample_needed or bit_depth_mismatch or 'flt' in fmt or 's32' in fmt or float(preamp) != 0.0:
