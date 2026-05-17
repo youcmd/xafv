@@ -91,7 +91,9 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         rate_arg = f"rate -v {target_sr} {dither}" if (sr != target_sr) else dither
         no_dither = "-D" if dither == "" else ""
 
-        if bd > 32 or 'flt' in fmt:
+        if bd == 16 and sr <= 48000 and float(preamp) != 0.0:
+            run_command(['flac', '-8', '-p', '-s', '-V', '-f', '-o', output_path, input_path])
+        elif bd > 32 or 'flt' in fmt:
             if float(preamp) == 0.0:
                 cmd = (f'sox {vol} "{input_path}" {no_dither} -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | '
                        f'flac -8 -p -s -V -f -o "{output_path}" -')
