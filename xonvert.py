@@ -78,6 +78,7 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
     # print(f"{fmt}_{bd}:{sr} > {bit_depth}:{target_sr}")
     
     vol_filter = f'-af "volume={preamp}dB" ' if preamp and float(preamp) != 0.0 else ""
+    gain = f'gain {preamp}' if preamp and float(preamp) != 0.0 else ""
     preamp_percent = db_to_percent(preamp)
     vol = f"-v {preamp_percent}" if preamp and float(preamp) != 0.0 else ""
     
@@ -88,21 +89,21 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         resample_needed = sr != target_sr
         bit_depth_mismatch = (bit_depth == 16 and bd != 16) or (bit_depth == 24 and bd > 24)
         dither = "dither" if (bit_depth == 24 and bd > 24) else ("dither -s" if (bit_depth == 16 and bd > 16) else "")
-        rate_arg = f"rate -v {target_sr} {dither}" if (sr != target_sr) else dither
+        rate_arg = f"rate -v {target_sr} {gain} {dither}" if (sr != target_sr) else f"{gain} {dither}"
         no_dither = "-D" if dither == "" else ""
 
         if bd == 16 and sr <= 48000 and float(preamp) != 0.0:
             run_command(['flac', '-8', '-p', '-s', '-V', '-f', '-o', output_path, input_path])
         elif bd > 32 or 'flt' in fmt:
             if float(preamp) == 0.0:
-                cmd = (f'sox {vol} "{input_path}" {no_dither} -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | '
+                cmd = (f'sox "{input_path}" {no_dither} -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | '
                        f'flac -8 -p -s -V -f -o "{output_path}" -')
             else:
                 cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" {vol_filter}'
                    f'-f sox - | sox -p {no_dither} -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | flac -8 -p -s -V -f -o "{output_path}" -')
             run_command(cmd)
         elif resample_needed or bit_depth_mismatch or 'flt' in fmt or 's32' in fmt or float(preamp) != 0.0:
-            cmd = (f'sox {vol} "{input_path}" {no_dither} -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | '
+            cmd = (f'sox "{input_path}" {no_dither} -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | '
                    f'flac -8 -p -s -V -f -o "{output_path}" -')
             run_command(cmd)
         else:
@@ -140,10 +141,10 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
                 cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" {vol_filter}'
                    f'-f sox - | sox -p -D -e floating-point -b 32 -L -t wav - {rate_arg} | opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
             elif 's32' in fmt:
-                cmd = (f'sox {vol} "{input_path}" -D -e floating-point -b 32 -L -t wav - {rate_arg} | '
+                cmd = (f'sox "{input_path}" -D -e floating-point -b 32 -L -t wav - {rate_arg} {gain} | '
                    f'opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
             else:
-                cmd = (f'sox {vol} "{input_path}" -D -L -t wav - {rate_arg} | '
+                cmd = (f'sox "{input_path}" -D -L -t wav - {rate_arg} {gain} | '
                    f'opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
             run_command(cmd)
         else:
