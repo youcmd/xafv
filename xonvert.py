@@ -99,6 +99,7 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
                 cmd = (f'sox "{input_path}" {no_dither} -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | '
                        f'flac -8 -p -s -V -f -o "{output_path}" -')
             else:
+                rate_arg = f"rate -v {target_sr} {dither}" if (sr != target_sr) else f"{dither}"
                 cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" {vol_filter}'
                    f'-f sox - | sox -p {no_dither} -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | flac -8 -p -s -V -f -o "{output_path}" -')
             run_command(cmd)
@@ -138,6 +139,7 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
             # run_command(['opusenc',"--quiet", br_arg, opus_npi, input_path, output_path])
         elif target_sr != 48000 or sr > 48000 or 's32' in fmt or bd > 32 or float(preamp) != 0.0:
             if 'flt' in fmt:
+                rate_arg = f"rate -v {target_sr} {dither}" if (sr != target_sr) else f"{dither}"
                 cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" {vol_filter}'
                    f'-f sox - | sox -p -D -e floating-point -b 32 -L -t wav - {rate_arg} | opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
             elif 's32' in fmt:
