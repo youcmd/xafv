@@ -139,7 +139,6 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
             # run_command(['opusenc',"--quiet", br_arg, opus_npi, input_path, output_path])
         elif target_sr != 48000 or sr > 48000 or 's32' in fmt or bd > 32 or float(preamp) != 0.0:
             if 'flt' in fmt:
-                rate_arg = f"rate -v {target_sr} {dither}" if (sr != target_sr) else f"{dither}"
                 cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" {vol_filter}'
                    f'-f sox - | sox -p -D -e floating-point -b 32 -L -t wav - {rate_arg} | opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
             elif 's32' in fmt:
