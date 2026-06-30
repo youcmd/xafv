@@ -89,7 +89,7 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         resample_needed = sr != target_sr
         bit_depth_mismatch = (bit_depth == 16 and bd != 16) or (bit_depth == 24 and bd > 24)
         dither = "dither" if (bit_depth == 24 and bd > 24) else ("dither -s" if (bit_depth == 16 and bd > 16) else "")
-        rate_arg = f"rate -v {target_sr} {gain} {dither}" if (sr != target_sr) else f"{gain} {dither}"
+        rate_arg = f"{gain} rate -v {target_sr} {dither}" if (sr != target_sr) else f"{gain} {dither}"
         no_dither = "-D" if dither == "" else ""
 
         if bd == 16 and sr <= 48000 and float(preamp) != 0.0:
@@ -142,10 +142,10 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
                 cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" {vol_filter}'
                    f'-f sox - | sox -p -D -e floating-point -b 32 -L -t wav - {rate_arg} | opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
             elif 's32' in fmt:
-                cmd = (f'sox "{input_path}" -D -e floating-point -b 32 -L -t wav - {rate_arg} {gain} | '
+                cmd = (f'sox "{input_path}" -D -e floating-point -b 32 -L -t wav - {gain} {rate_arg} | '
                    f'opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
             else:
-                cmd = (f'sox "{input_path}" -D -L -t wav - {rate_arg} {gain} | '
+                cmd = (f'sox "{input_path}" -D -L -t wav - {gain} {rate_arg} | '
                    f'opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
             run_command(cmd)
         else:
