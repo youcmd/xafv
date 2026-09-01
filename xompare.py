@@ -27,13 +27,7 @@ def load_audio_stereo(filepath):
 
 def get_bitrate(filepath):
   cmd = [
-      "ffprobe",
-      "-v",
-      "quiet",
-      "-print_format",
-      "json",
-      "-show_format",
-      filepath,
+      "ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", filepath,
   ]
   result = subprocess.run(
       cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
@@ -45,15 +39,15 @@ def get_bitrate(filepath):
       else 0.0
   )
 
-
 def main():
   parser = argparse.ArgumentParser(
       description=(
-          "Compare a lossy audio file against a reference using Zimtohrli."
+          "Compare a lossy audio file against a reference using Zimtohrli (supports long audio via chunking)."
       )
   )
   parser.add_argument("lossy", help="Path to the lossy/test audio file")
   parser.add_argument("ref", help="Path to the reference audio file")
+  parser.add_argument("--chunk_duration", type=float, default=30.0, help="Chunk duration in seconds (default: 30s)")
   args = parser.parse_args()
 
   # Load reference and test audio concurrently using threads
@@ -70,24 +64,43 @@ def main():
   ref_l, test_l = ref_l[:min_len], test_l[:min_len]
   ref_r, test_r = ref_r[:min_len], test_r[:min_len]
 
-  # Evaluate Left and Right channels concurrently
-  with ThreadPoolExecutor(max_workers=2) as executor:
-    future_l = executor.submit(mos_from_signals, ref_l, test_l)
-    future_r = executor.submit(mos_from_signals, ref_r, test_r)
-    scoreL = future_l.result()
-    scoreR = future_r.result()
+  sr = 48000
+  chunk_samples = int(args.chunk_duration * sr)
+  
+  scores_l = []
+  scores_r = []
 
+  # Process audio in chunks to prevent DTW memory explosion
+  for start in range(0, min_len, chunk_samples):
+      end = min(start + chunk_samples, min_len)
+      
+      # Skip trailing fragments smaller than 0.5 seconds
+      if end - start < sr * 0.5:
+          continue
+
+      chunk_ref_l = ref_l[start:end]
+      chunk_test_l = test_l[start:end]
+      chunk_ref_r = ref_r[start:end]
+      chunk_test_r = test_r[start:end]
+
+      # Evaluate Left and Right channels concurrently for the current chunk
+      with ThreadPoolExecutor(max_workers=2) as executor:
+        future_l = executor.submit(mos_from_signals, chunk_ref_l, chunk_test_l)
+        future_r = executor.submit(mos_from_signals, chunk_ref_r, chunk_test_r)
+        scores_l.append(future_l.result())
+        scores_r.append(future_r.result())
+
+  scoreL = float(np.mean(scores_l)) if scores_l else 0.0
+  scoreR = float(np.mean(scores_r)) if scores_r else 0.0
   score = (scoreL + scoreR) / 2.0
   bitrate = get_bitrate(args.lossy)
 
-#   print("\n")
 #   print("\n--- Zimtohrli Audio Quality Comparison ---")
 #   print(f"File:     {os.path.basename(args.lossy)}", end="\t")
-  print(f"Score:    {score:.6f}", end="\t")
-  print(f"Left:     {scoreL:.6f}", end="\t")
-  print(f"Right:    {scoreR:.6f}", end="\t")
-  print(f"Bitrate:  {bitrate:.3f} kbps")
-
+  print(f"Score:{score:.6f}", end="\t")
+  print(f"Left:{scoreL:.6f}", end="\t")
+  print(f"Right:{scoreR:.6f}", end="\t")
+  print(f"Bitrate:{bitrate:.3f} kbps")
 
 if __name__ == "__main__":
   main()
