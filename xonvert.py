@@ -96,15 +96,15 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
             run_command(['flac', '-8', '-p', '-s', '-V', '-f', '-o', output_path, input_path])
         elif bd > 32 or 'flt' in fmt:
             if float(preamp) == 0.0:
-                cmd = (f'sox "{input_path}" {no_dither} -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | '
+                cmd = (f'sox "{input_path}" {no_dither} -G -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | '
                        f'flac -8 -p -s -V -f -o "{output_path}" -')
             else:
                 rate_arg = f"rate -v {target_sr} {dither}" if (sr != target_sr) else f"{dither}"
                 cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" {vol_filter}'
-                   f'-f sox - | sox -p {no_dither} -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | flac -8 -p -s -V -f -o "{output_path}" -')
+                   f'-f sox - | sox -p {no_dither} -G -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | flac -8 -p -s -V -f -o "{output_path}" -')
             run_command(cmd)
         elif resample_needed or bit_depth_mismatch or 'flt' in fmt or 's32' in fmt or float(preamp) != 0.0:
-            cmd = (f'sox "{input_path}" {no_dither} -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | '
+            cmd = (f'sox "{input_path}" {no_dither} -G -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | '
                    f'flac -8 -p -s -V -f -o "{output_path}" -')
             run_command(cmd)
         else:
@@ -119,18 +119,18 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         br_arg = f"--bitrate {bitrate}" if bitrate else ""
         rate_arg = "rate -v 48000" if (44100 < sr != 48000) else ""
         # --- NPI Logic ---
-        opus_npi = ""
-        npi_status = "on"
-        if phase_inv_mode == "on":
-            opus_npi = ""
-            npi_status = "forced-off"
-        elif phase_inv_mode == "scan":
-            isnophaseinv = check_npi.isnophaseinv(input_path)
-            opus_npi = "--no-phase-inv" if isnophaseinv else ""
-            npi_status = "scanned:" + ("on" if isnophaseinv else "off")
-        else: # false
-            opus_npi = "--no-phase-inv"
-            npi_status = "forced-on"
+        opus_npi = "--no-phase-inv"
+        npi_status = "forced-on"
+        # if phase_inv_mode == "on":
+        #     opus_npi = ""
+        #     npi_status = "forced-off"
+        # elif phase_inv_mode == "scan":
+        #     isnophaseinv = check_npi.isnophaseinv(input_path)
+        #     opus_npi = "--no-phase-inv" if isnophaseinv else ""
+        #     npi_status = "scanned:" + ("on" if isnophaseinv else "off")
+        # else: # false
+        #     opus_npi = "--no-phase-inv"
+        #     npi_status = "forced-on"
 
         # Opus strictly handles float; if it's already float or simple enough, opusenc handles it
         if fmt != "s32" and sr <= 48000 and bd <= 32 and float(preamp) == 0.0 :
@@ -140,12 +140,12 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         elif target_sr != 48000 or sr > 48000 or 's32' in fmt or bd > 32 or float(preamp) != 0.0:
             if 'flt' in fmt:
                 cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" {vol_filter}'
-                   f'-f sox - | sox -p -D -e floating-point -b 32 -L -t wav - {rate_arg} | opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
+                   f'-f sox - | sox -p -D -G -e floating-point -b 32 -L -t wav - {rate_arg} | opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
             elif 's32' in fmt:
-                cmd = (f'sox "{input_path}" -D -e floating-point -b 32 -L -t wav - {gain} {rate_arg} | '
+                cmd = (f'sox "{input_path}" -D -G -e floating-point -b 32 -L -t wav - {gain} {rate_arg} | '
                    f'opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
             else:
-                cmd = (f'sox "{input_path}" -D -L -t wav - {gain} {rate_arg} | '
+                cmd = (f'sox "{input_path}" -D -G -L -t wav - {gain} {rate_arg} | '
                    f'opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
             run_command(cmd)
         else:
