@@ -9,7 +9,7 @@ import numpy as np
 import soundfile as sf
 from zimtohrli import mos_from_signals
 
-def load_audio_stereo(filepath):
+def load_audio(filepath, target_channels=None):
     ext = os.path.splitext(filepath)[1].lower()
     temp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     temp_wav_path = temp_wav.name
@@ -17,39 +17,39 @@ def load_audio_stereo(filepath):
 
     success = False
 
-    # 1. If .opus, try opusdec first
+    # 1. Use opusdec ONLY if target_channels is 2 (opusdec forces stereo output)
     if ext == ".opus":
         try:
-            cmd = ["opusdec", "--rate", "48000", "--force-stereo", "--no-dither", "--float", filepath, temp_wav_path]
+            cmd = ["opusdec", "--rate", "48000", "--no-dither", "--float", filepath, temp_wav_path]
             subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
             if os.path.exists(temp_wav_path) and os.path.getsize(temp_wav_path) > 0:
                 success = True
         except (subprocess.SubprocessError, FileNotFoundError):
             pass
 
-    # 2. Default: try soundfile first
+    # 2. Try soundfile for standard formats if channel count matches
     if not success:
         try:
             y, sr = sf.read(filepath, always_2d=True)
-            # Ensure 48kHz stereo format matching requirements
-            if sr == 48000 and y.shape[1] == 2:
+            if sr == 48000 and (target_channels is None or y.shape[1] == target_channels):
                 y = y.T.astype(np.float32)
                 if os.path.exists(temp_wav_path):
                     os.remove(temp_wav_path)
                 return y
-            else:
-                raise ValueError("Resampling/rechanneling needed via fallback")
         except Exception:
             pass
 
-    # 3. Fallback to ffmpeg
-    if not success:
-        cmd = [
-            "ffmpeg", "-y", "-i", filepath, "-vn", "-sn", "-dn",
-            "-af", "aresample=48000:resampler=soxr:cutoff=1:precision=33:dither_method=none:osf=flt",
-            "-ac", "2", "-f", "wav", "-c:a", "pcm_f32le", "-map_metadata", "-1", temp_wav_path
-        ]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    # 3. Universal multi-channel fallback via ffmpeg (handles mono, 5.1, 7.1, etc.)
+    cmd = [
+        "ffmpeg", "-y", "-i", filepath, "-vn", "-sn", "-dn",
+        "-af", "aresample=48000:resampler=soxr:cutoff=1:precision=33:dither_method=none:osf=flt",
+        "-f", "wav", "-c:a", "pcm_f32le", "-map_metadata", "-1"
+    ]
+    if target_channels is not None:
+        cmd.extend(["-ac", str(target_channels)])
+    cmd.append(temp_wav_path)
+
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
 
     y, sr = sf.read(temp_wav_path, always_2d=True)
     y = y.T.astype(np.float32)
@@ -60,14 +60,8 @@ def load_audio_stereo(filepath):
     return y
 
 def calculate_non_linear_score(mos, bitrate, threshold=4.75):
-    # 1. Hard/Exponential penalty if MOS drops below the 4.75 threshold
     threshold_penalty = np.where(mos < threshold, np.exp(threshold - mos) - 1.0, 0.0)
-    
-    # 2. Logarithmic bitrate penalty (diminishing penalty for higher bitrates)
-    # This prevents bloated bitrates from unfairly dominating efficient codecs
     bitrate_cost = 0.04 * np.log(bitrate + 1.0)
-    
-    # 3. Final non-linear formulation
     final_score = mos - bitrate_cost - threshold_penalty
     return final_score
 
@@ -91,7 +85,7 @@ def get_bitrate(filepath):
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "Compare a lossy audio file against a reference using Zimtohrli (supports long audio via chunking and skipping)."
+            "Compare a lossy audio file against a reference using Zimtohrli (supports multi-channel audio and long chunks)."
         )
     )
     parser.add_argument("lossy", help="Path to the lossy/test audio file")
@@ -100,54 +94,44 @@ def main():
     parser.add_argument("--skip_duration", type=float, default=20.0, help="Skip duration after each chunk in seconds (default: 20s)")
     args = parser.parse_args()
 
-    # Load reference and test audio concurrently using threads
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        ref_future = executor.submit(load_audio_stereo, args.ref)
-        test_future = executor.submit(load_audio_stereo, args.lossy)
-        ref_stereo = ref_future.result()
-        test_stereo = test_future.result()
+    # Load reference first to dynamically determine channel count
+    ref_audio = load_audio(args.ref)
+    num_channels = ref_audio.shape[0]
 
-    ref_l, ref_r = ref_stereo[0], ref_stereo[1]
-    test_l, test_r = test_stereo[0], test_stereo[1]
+    # Load lossy audio forcing it to match reference channel count via ffmpeg
+    test_audio = load_audio(args.lossy, target_channels=num_channels)
 
-    min_len = min(len(ref_l), len(test_l))
-    ref_l, test_l = ref_l[:min_len], test_l[:min_len]
-    ref_r, test_r = ref_r[:min_len], test_r[:min_len]
+    min_len = min(ref_audio.shape[1], test_audio.shape[1])
+    ref_audio = ref_audio[:, :min_len]
+    test_audio = test_audio[:, :min_len]
 
     sr = 48000
     chunk_samples = int(args.chunk_duration * sr)
     skip_samples = int(args.skip_duration * sr)
     step_samples = chunk_samples + skip_samples
     
-    scores_l = []
-    scores_r = []
+    channel_scores = [[] for _ in range(num_channels)]
 
-    # Process audio in chunks with skipping for long audio optimization
     for start in range(0, min_len, step_samples):
         end = min(start + chunk_samples, min_len)
         
-        # Skip trailing fragments smaller than 0.5 seconds
         if end - start < sr * 0.5:
             continue
 
-        chunk_ref_l = ref_l[start:end]
-        chunk_test_l = test_l[start:end]
-        chunk_ref_r = ref_r[start:end]
-        chunk_test_r = test_r[start:end]
+        # Evaluate all channels concurrently for the current chunk
+        with ThreadPoolExecutor(max_workers=num_channels) as executor:
+            futures = [
+                executor.submit(mos_from_signals, ref_audio[c, start:end], test_audio[c, start:end])
+                for c in range(num_channels)
+            ]
+            for c, future in enumerate(futures):
+                channel_scores[c].append(future.result())
 
-        # Evaluate Left and Right channels concurrently for the current chunk
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            future_l = executor.submit(mos_from_signals, chunk_ref_l, chunk_test_l)
-            future_r = executor.submit(mos_from_signals, chunk_ref_r, chunk_test_r)
-            scores_l.append(future_l.result())
-            scores_r.append(future_r.result())
-
-    scoreL = float(np.mean(scores_l)) if scores_l else 0.0
-    scoreR = float(np.mean(scores_r)) if scores_r else 0.0
-    score = (scoreL + scoreR) / 2.0
+    mean_channel_scores = [float(np.mean(scores)) if scores else 0.0 for scores in channel_scores]
+    score = float(np.mean(mean_channel_scores)) if mean_channel_scores else 0.0
+    
     bitrate = get_bitrate(args.lossy)
-    # final = score/bitrate*int(bitrate)
-    final = calculate_non_linear_score(score,bitrate)
+    final = calculate_non_linear_score(score, bitrate)
 
     print(f"Score:{score:.6f}", end="\t")
     print(f"kbps:{bitrate:.3f}", end="\t")
