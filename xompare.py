@@ -59,6 +59,18 @@ def load_audio_stereo(filepath):
 
     return y
 
+def calculate_non_linear_score(mos, bitrate, threshold=4.75):
+    # 1. Hard/Exponential penalty if MOS drops below the 4.75 threshold
+    threshold_penalty = np.where(mos < threshold, np.exp(threshold - mos) - 1.0, 0.0)
+    
+    # 2. Logarithmic bitrate penalty (diminishing penalty for higher bitrates)
+    # This prevents bloated bitrates from unfairly dominating efficient codecs
+    bitrate_cost = 0.04 * np.log(bitrate + 1.0)
+    
+    # 3. Final non-linear formulation
+    final_score = mos - bitrate_cost - threshold_penalty
+    return final_score
+
 def get_bitrate(filepath):
     cmd = [
         "ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", filepath,
@@ -134,7 +146,8 @@ def main():
     scoreR = float(np.mean(scores_r)) if scores_r else 0.0
     score = (scoreL + scoreR) / 2.0
     bitrate = get_bitrate(args.lossy)
-    final = score/bitrate*int(bitrate)
+    # final = score/bitrate*int(bitrate)
+    final = calculate_non_linear_score(score,bitrate)
 
     print(f"Score:{score:.6f}", end="\t")
     print(f"kbps:{bitrate:.3f}", end="\t")
