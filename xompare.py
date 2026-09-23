@@ -135,7 +135,7 @@ def main():
 
     print(f"Score:{score:.6f}", end="\t")
     print(f"kbps:{bitrate:.3f}", end="\t")
-    print(f"{final:.6f}")
+    print(f"final:{final:.6f}")
 
 if __name__ == "__main__":
     main()
