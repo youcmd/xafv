@@ -130,10 +130,14 @@ def main():
     mean_channel_scores = [float(np.mean(scores)) if scores else 0.0 for scores in channel_scores]
     score = float(np.mean(mean_channel_scores)) if mean_channel_scores else 0.0
     
+    all_scores = [s for scores in channel_scores for s in scores]
+    min_score = float(np.min(all_scores)) if all_scores else 0.0
+    
     bitrate = get_bitrate(args.lossy)
     final = calculate_non_linear_score(score, bitrate)
 
     print(f"Score:{score:.6f}", end="\t")
+    print(f"min:{min_score:.6f}", end="\t")
     print(f"kbps:{bitrate:.3f}", end="\t")
     print(f"final:{final:.6f}")
 
