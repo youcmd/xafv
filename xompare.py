@@ -135,11 +135,13 @@ def main():
     
     bitrate = get_bitrate(args.lossy)
     final = calculate_non_linear_score(score, bitrate)
+    reencode = 1 if min_score<4.75 and bitrate >= 64 else 0
 
     print(f"Score:{score:.6f}", end="\t")
     print(f"min:{min_score:.6f}", end="\t")
     print(f"kbps:{bitrate:.3f}", end="\t")
-    print(f"final:{final:.6f}")
+    print(f"final:{final:.6f}", end="\t")
+    print(f"reencode:{reencode}")
 
 if __name__ == "__main__":
     main()
