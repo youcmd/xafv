@@ -69,6 +69,8 @@ def run_command(
 
     if not quiet:
         print("$", " ".join(str(x) for x in command))
+    
+    stderr_target = subprocess.DEVNULL if (quiet and not capture_output) else None
 
     try:
         return subprocess.run(
@@ -76,6 +78,7 @@ def run_command(
             capture_output=capture_output,
             text=True,
             check=check,
+            stderr=stderr_target,
         )
 
     except FileNotFoundError as exc:
@@ -105,6 +108,9 @@ def check_dependencies(codec: Optional[str] = None):
 
     if codec == "opus":
         required["opusenc"] = find_executable("opusenc")
+
+    if codec == "mediainfo":
+        required["mediainfo"] = find_executable("mediainfo")
 
     elif codec == "flac":
         required["flac"] = find_executable("flac")
@@ -866,6 +872,12 @@ def calculate_target_mos(
     current_bitrate: int,
 ) -> float:
 
+    if current_bitrate >= 128:
+        return target_mos - 0.02
+
+    if current_bitrate >= 96:
+        return target_mos - 0.01
+
     if current_bitrate <= 48:
         return target_mos + 0.02
 
@@ -874,12 +886,6 @@ def calculate_target_mos(
 
     if current_bitrate <= 64:
         return target_mos + 0.01
-
-    if current_bitrate >= 128:
-        return target_mos - 0.02
-
-    if current_bitrate >= 96:
-        return target_mos - 0.01
 
     return target_mos
 
@@ -1129,7 +1135,8 @@ def find_optimal_bitrate(
             print(
                 f"[*] Testing bitrate: "
                 f"{bitrate} kbps "
-                f"across {len(timestamps)} samples..."
+                f"across {len(timestamps)} samples...", 
+                end=""
             )
 
             metrics = evaluate_multiple_samples(
@@ -1151,7 +1158,7 @@ def find_optimal_bitrate(
             min_scores[bitrate] = min_score
 
             print(
-                f"    -> Mean: {mean_score:.4f} "
+                f" -> Final: {mean_score:.4f} "
                 f"Min: {min_score:.4f}"
             )
 
@@ -1344,6 +1351,7 @@ def batch_process(
     preamp: float = 0.0,
     phase_inv: str = "off",
     output_suffix: str = "_EF",
+    compare: bool = False
 ):
     input_directory = Path(
         input_directory
@@ -1405,19 +1413,19 @@ def batch_process(
                 preamp,
                 phase_inv,
             )
+            if compare:
+                print(
+                    "[*] Comparing final encode..."
+                )
 
-            print(
-                "[*] Comparing final encode..."
-            )
+                result = compare_audio(
+                    output_file,
+                    input_file,
+                    chunk_duration=20,
+                    skip_duration=20,
+                )
 
-            result = compare_audio(
-                output_file,
-                input_file,
-                chunk_duration=20,
-                skip_duration=0,
-            )
-
-            print_comparison(result)
+                print_comparison(result)
 
         except Exception as exc:
 
@@ -1606,6 +1614,11 @@ def build_parser():
         default="_EF",
     )
 
+    batch.add_argument(
+        "--compare",
+        default=False,
+    )
+
     return parser
 
 
@@ -1662,6 +1675,7 @@ def main():
                 preamp=args.preamp,
                 phase_inv=args.phase_inv,
                 output_suffix=args.suffix,
+                compare=args.compare
             )
 
     except KeyboardInterrupt:
