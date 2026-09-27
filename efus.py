@@ -1337,9 +1337,8 @@ def get_output_path(
     suffix: str,
 ) -> Path:
 
-    return (
-        input_path.parent
-        / f"{input_path.stem}{suffix}"
+    return input_path.with_name(
+        f"{input_path.stem}{suffix}.opus"
     )
 
 
