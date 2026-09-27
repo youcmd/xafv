@@ -1178,8 +1178,8 @@ def find_optimal_bitrate(
         )
 
         min_target = (
-            4.88
-            if bitrate <= 64
+            4.9 if bitrate <= 48 
+            else 4.88 if bitrate <= 64 
             else 4.87
         )
 
