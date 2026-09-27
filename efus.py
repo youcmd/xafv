@@ -29,7 +29,7 @@ SAMPLE_RATE = 48000
 DEFAULT_CHUNK_DURATION = 20.0
 DEFAULT_SKIP_DURATION = 20.0
 
-BITRATE_LADDER = list(range(56, 129, 8))
+BITRATE_LADDER = list(range(32, 161, 8))
 
 
 # ============================================================
@@ -607,7 +607,7 @@ def get_bitrate(filepath: str | Path) -> float:
 def calculate_non_linear_score(
     mos,
     bitrate,
-    threshold=4.75,
+    threshold=5,
 ):
     threshold_penalty = np.where(
         mos < threshold,
@@ -1556,7 +1556,7 @@ def build_parser():
     optimize.add_argument(
         "--target",
         type=float,
-        default=4.72,
+        default=4.6,
     )
 
     optimize.add_argument(
@@ -1592,7 +1592,7 @@ def build_parser():
     batch.add_argument(
         "--target",
         type=float,
-        default=4.72,
+        default=4.6,
     )
 
     batch.add_argument(
