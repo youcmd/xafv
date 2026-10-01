@@ -879,10 +879,10 @@ def calculate_target_mos(
         return target_mos - 0.01
 
     if current_bitrate <= 48:
-        return target_mos + 0.02
+        return target_mos + 0.04
 
     if current_bitrate <= 56:
-        return target_mos + 0.015
+        return target_mos + 0.02
 
     if current_bitrate <= 64:
         return target_mos + 0.01
@@ -1101,8 +1101,8 @@ def evaluate_multiple_samples(
 
 def find_optimal_bitrate(
     input_file: str | Path,
-    target_mos: float = 4.72,
-    num_samples: int = 8,
+    target_mos: float = 4.6,
+    num_samples: int = 4,
     sample_duration: float = 20.0,
 ):
     timestamps = extract_multiple_samples(
@@ -1346,7 +1346,7 @@ def batch_process(
     input_directory: str | Path,
     *,
     pattern: str = "*.wav",
-    target_mos: float = 4.72,
+    target_mos: float = 4.6,
     preamp: float = 0.0,
     phase_inv: str = "off",
     output_suffix: str = "_EF",
