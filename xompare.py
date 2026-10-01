@@ -59,7 +59,7 @@ def load_audio(filepath, target_channels=None):
 
     return y
 
-def calculate_non_linear_score(mos, bitrate, threshold=4.75):
+def calculate_non_linear_score(mos, bitrate, threshold=5):
     threshold_penalty = np.where(mos < threshold, np.exp(threshold - mos) - 1.0, 0.0)
     bitrate_cost = 0.04 * np.log(bitrate + 1.0)
     final_score = mos - bitrate_cost - threshold_penalty
