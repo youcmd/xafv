@@ -56,6 +56,18 @@ def get_base_sample_rate(rate: int) -> int: # 88.2 > 44.1 or 96 > 48
     else:
         return 48000
 
+def get_strict_opus_rate(rate: int) -> int:
+    if rate <= 8000:
+        return 8000
+    elif rate <= 12000:
+        return 12000
+    elif rate <= 16000:
+        return 16000
+    elif rate <= 24000:
+        return 24000
+    else:
+        return 48000
+
 def db_to_percent(db):
     return  round(10 ** (db / 20),4)
 
@@ -75,40 +87,39 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
     bd = info['bit_depth']
     
     target_sr = get_base_sample_rate(sr)
-    # print(f"{fmt}_{bd}:{sr} > {bit_depth}:{target_sr}")
     
-    vol_filter = f'-af "volume={preamp}dB" ' if preamp and float(preamp) != 0.0 else ""
     gain = f'gain {preamp}' if preamp and float(preamp) != 0.0 else ""
-    preamp_percent = db_to_percent(preamp)
-    vol = f"-v {preamp_percent}" if preamp and float(preamp) != 0.0 else ""
     
     logs = []
 
-    if codec == 'flac': #WIP
-        # Check if we need resampling or bit depth change
+    if codec == 'flac':
         resample_needed = sr != target_sr
         bit_depth_mismatch = (bit_depth == 16 and bd != 16) or (bit_depth == 24 and bd > 24)
-        dither = "dither" if (bit_depth == 24 and bd > 24) else ("dither -s" if (bit_depth == 16 and bd > 16) else "")
-        rate_arg = f"{gain} rate -v {target_sr} {dither}" if (sr != target_sr) else f"{gain} {dither}"
+        # dither = "dither" if (bit_depth == 24 and bd > 24) else ("dither -s" if (bit_depth == 16 and bd > 16) else "")
+        dither = (
+            "dither -s" if bit_depth == 16 and bd > 16 and sr >= 32000
+            else "dither" if (bit_depth == 16 and bd > 16) or (bit_depth == 24 and bd > 24)
+            else ""
+        )
+        
+        # Combine gain and rate/dither natively using sox-vulkan
+        rate_args = []
+        if gain:
+            rate_args.append(gain)
+        if resample_needed:
+            rate_args.append(f"rate -v {target_sr}")
+        if dither:
+            rate_args.append(dither)
+        
+        rate_arg = " ".join(rate_args)
         no_dither = "-D" if dither == "" else ""
 
-        if bd == 16 and sr <= 48000 and float(preamp) != 0.0:
+        if bd == 16 and sr <= 48000 and float(preamp) == 0.0 and not resample_needed:
             run_command(['flac', '-8', '-p', '-s', '-V', '-f', '-o', output_path, input_path])
-        elif bd > 32 or 'flt' in fmt:
-            if float(preamp) == 0.0:
-                cmd = (f'sox "{input_path}" {no_dither} -G -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | '
-                       f'flac -8 -p -s -V -f -o "{output_path}" -')
-            else:
-                rate_arg = f"rate -v {target_sr} {dither}" if (sr != target_sr) else f"{dither}"
-                cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" {vol_filter}'
-                   f'-f sox - | sox -p {no_dither} -G -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | flac -8 -p -s -V -f -o "{output_path}" -')
-            run_command(cmd)
-        elif resample_needed or bit_depth_mismatch or 'flt' in fmt or 's32' in fmt or float(preamp) != 0.0:
+        else:
             cmd = (f'sox "{input_path}" {no_dither} -G -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | '
                    f'flac -8 -p -s -V -f -o "{output_path}" -')
             run_command(cmd)
-        else:
-            run_command(['flac', '-8', '-p', '-s', '-V', '-f', '-o', output_path, input_path])
         
         # Log results
         out_info = get_audio_info(output_path)
@@ -117,40 +128,27 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
 
     elif codec == 'opus':
         br_arg = f"--bitrate {bitrate}" if bitrate else ""
-        rate_arg = "rate -v 48000" if (44100 < sr != 48000) else ""
+        # rate_arg = f"rate -v {output_sr}" if (44100 < sr != 48000) else ""
+        rate_arg = f"rate -v {get_strict_opus_rate(sr)}" if sr not in {8000, 12000, 16000, 24000, 48000} else ""
+        
         # --- NPI Logic ---
         opus_npi = "--no-phase-inv"
         npi_status = "forced-on"
-        # if phase_inv_mode == "on":
-        #     opus_npi = ""
-        #     npi_status = "forced-off"
-        # elif phase_inv_mode == "scan":
-        #     isnophaseinv = check_npi.isnophaseinv(input_path)
-        #     opus_npi = "--no-phase-inv" if isnophaseinv else ""
-        #     npi_status = "scanned:" + ("on" if isnophaseinv else "off")
-        # else: # false
-        #     opus_npi = "--no-phase-inv"
-        #     npi_status = "forced-on"
 
-        # Opus strictly handles float; if it's already float or simple enough, opusenc handles it
+        sox_effects = []
+        if gain:
+            sox_effects.append(gain)
+        if rate_arg:
+            sox_effects.append(rate_arg)
+        effects_str = " ".join(sox_effects)
+
         if fmt != "s32" and sr <= 48000 and bd <= 32 and float(preamp) == 0.0 :
             cmd = (f'opusenc --quiet {br_arg} {opus_npi} "{input_path}" "{output_path}"')
-            run_command(cmd)
-            # run_command(['opusenc',"--quiet", br_arg, opus_npi, input_path, output_path])
-        elif target_sr != 48000 or sr > 48000 or 's32' in fmt or bd > 32 or float(preamp) != 0.0:
-            if 'flt' in fmt:
-                cmd = (f'ffmpeg -hide_banner -v quiet -i "{input_path}" {vol_filter}'
-                   f'-f sox - | sox -p -D -G -e floating-point -b 32 -L -t wav - {rate_arg} | opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
-            elif 's32' in fmt:
-                cmd = (f'sox "{input_path}" -D -G -e floating-point -b 32 -L -t wav - {gain} {rate_arg} | '
+        else: #use sox if wav is s32 or preamp !=0
+            cmd = (f'sox "{input_path}" -D -G -e floating-point -b 32 -L -t wav - {effects_str} | '
                    f'opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
-            else:
-                cmd = (f'sox "{input_path}" -D -G -L -t wav - {gain} {rate_arg} | '
-                   f'opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
-            run_command(cmd)
-        else:
-            cmd = (f'opusenc --quiet {br_arg} {opus_npi} "{input_path}" "{output_path}"')
-            run_command(cmd)
+        
+        run_command(cmd)
         
         out_info = get_audio_info(output_path)
         logs.append(f"opus: {out_info['kbps']}kbps npi:{npi_status}.")
@@ -168,7 +166,7 @@ def main():
     parser.add_argument('-i', '--input', required=True, help="Input file path")
     parser.add_argument('-o', '--output', required=True, help="Output file path")
     parser.add_argument('-vol', '--preamp', type=float, default=0.0, help="Volume adjustment in dB (e.g., -3 or 1.5)")
-    parser.add_argument('-pi', '--phase-inv', choices=['on', 'scan', 'off'], default='scan', help="Control Opus phase inversion (default: scan)")
+    parser.add_argument('-pi', '--phase-inv', choices=['on', 'scan', 'off'], default='off', help="Control Opus phase inversion (default: off)")
     
     args = parser.parse_args()
     process_audio(args.codec, args.bitdepth, args.input, args.output, args.bitrate, args.preamp, args.phase_inv)
