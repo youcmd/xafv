@@ -85,12 +85,15 @@ def run_command(command):
             if os.path.isfile(fallback) and os.access(fallback, os.X_OK):
                 print(f"Retrying with {fallback}...")
                 command = fallback + command[3:]
-                subprocess.run(command, shell=True, check=True)
+
+                try:
+                    subprocess.run(command, shell=True, check=True)
+                except subprocess.CalledProcessError as e:
+                    print(f"Fallback SoX also failed: {e}")
+                    raise
             else:
                 print(f"Fallback SoX not found: {fallback}")
                 raise
-        else:
-            raise
 
 def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, preamp=0, phase_inv_mode="scan", show_log=True):
     info = get_audio_info(input_path)
