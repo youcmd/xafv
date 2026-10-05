@@ -79,6 +79,18 @@ def run_command(command):
         subprocess.run(command, shell=use_shell, check=True)
     except subprocess.CalledProcessError as e:
         print(f"Command failed: {e}")
+        if isinstance(command, str) and command.startswith("sox "):
+            fallback = "/usr/bin/sox"
+
+            if os.path.isfile(fallback) and os.access(fallback, os.X_OK):
+                print(f"Retrying with {fallback}...")
+                command = fallback + command[3:]
+                subprocess.run(command, shell=True, check=True)
+            else:
+                print(f"Fallback SoX not found: {fallback}")
+                raise
+        else:
+            raise
 
 def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, preamp=0, phase_inv_mode="scan", show_log=True):
     info = get_audio_info(input_path)
