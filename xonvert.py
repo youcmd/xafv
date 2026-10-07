@@ -95,7 +95,7 @@ def run_command(command):
                 print(f"Fallback SoX not found: {fallback}")
                 raise
 
-def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, preamp=0, phase_inv_mode="scan", show_log=True):
+def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, preamp=0, show_log=True):
     info = get_audio_info(input_path)
     sr = info['sample_rate']
     fmt = info['sample_fmt']
@@ -145,10 +145,6 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         br_arg = f"--bitrate {bitrate}" if bitrate else ""
         # rate_arg = f"rate -v {output_sr}" if (44100 < sr != 48000) else ""
         rate_arg = f"rate -v {get_strict_opus_rate(sr)}" if sr not in {8000, 12000, 16000, 24000, 48000} else ""
-        
-        # --- NPI Logic ---
-        opus_npi = "--no-phase-inv"
-        npi_status = "forced-on"
 
         sox_effects = []
         if gain:
@@ -158,15 +154,15 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         effects_str = " ".join(sox_effects)
 
         if fmt != "s32" and sr <= 48000 and bd <= 32 and float(preamp) == 0.0 :
-            cmd = (f'opusenc --quiet {br_arg} {opus_npi} "{input_path}" "{output_path}"')
+            cmd = (f'opusenc --quiet {br_arg} "{input_path}" "{output_path}"')
         else: #use sox if wav is s32 or preamp !=0
             cmd = (f'sox "{input_path}" -D -G -e floating-point -b 32 -L -t wav - {effects_str} | '
-                   f'opusenc --quiet {br_arg} {opus_npi} - "{output_path}"')
+                   f'opusenc --quiet {br_arg} - "{output_path}"')
         
         run_command(cmd)
         
         out_info = get_audio_info(output_path)
-        logs.append(f"opus: {out_info['kbps']}kbps npi:{npi_status}.")
+        logs.append(f"opus: {out_info['kbps']}kbps")
     
     logs.append(f"b:{bd} s:{sr} preamp:{preamp}.")
 
@@ -181,10 +177,9 @@ def main():
     parser.add_argument('-i', '--input', required=True, help="Input file path")
     parser.add_argument('-o', '--output', required=True, help="Output file path")
     parser.add_argument('-vol', '--preamp', type=float, default=0.0, help="Volume adjustment in dB (e.g., -3 or 1.5)")
-    parser.add_argument('-pi', '--phase-inv', choices=['on', 'scan', 'off'], default='off', help="Control Opus phase inversion (default: off)")
     
     args = parser.parse_args()
-    process_audio(args.codec, args.bitdepth, args.input, args.output, args.bitrate, args.preamp, args.phase_inv)
+    process_audio(args.codec, args.bitdepth, args.input, args.output, args.bitrate, args.preamp)
 
 if __name__ == "__main__":
     main()
