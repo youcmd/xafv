@@ -17,32 +17,32 @@ def load_audio(filepath, target_channels=None):
 
     success = False
 
-    # 1. Use opusdec ONLY if target_channels is 2 (opusdec forces stereo output)
-    if ext == ".opus":
-        try:
-            cmd = ["opusdec", "--rate", "48000", "--no-dither", "--float", filepath, temp_wav_path]
-            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-            if os.path.exists(temp_wav_path) and os.path.getsize(temp_wav_path) > 0:
-                success = True
-        except (subprocess.SubprocessError, FileNotFoundError):
-            pass
+    # # 1. Use opusdec ONLY if target_channels is 2 (opusdec forces stereo output)
+    # if ext == ".opus":
+    #     try:
+    #         cmd = ["opusdec", "--rate", "48000", "--no-dither", "--float", filepath, temp_wav_path]
+    #         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    #         if os.path.exists(temp_wav_path) and os.path.getsize(temp_wav_path) > 0:
+    #             success = True
+    #     except (subprocess.SubprocessError, FileNotFoundError):
+    #         pass
 
-    # 2. Try soundfile for standard formats if channel count matches
-    if not success:
-        try:
-            y, sr = sf.read(filepath, always_2d=True)
-            if sr == 48000 and (target_channels is None or y.shape[1] == target_channels):
-                y = y.T.astype(np.float32)
-                if os.path.exists(temp_wav_path):
-                    os.remove(temp_wav_path)
-                return y
-        except Exception:
-            pass
+    # # 2. Try soundfile for standard formats if channel count matches
+    # if not success:
+    #     try:
+    #         y, sr = sf.read(filepath, always_2d=True)
+    #         if sr == 48000 and (target_channels is None or y.shape[1] == target_channels):
+    #             y = y.T.astype(np.float32)
+    #             if os.path.exists(temp_wav_path):
+    #                 os.remove(temp_wav_path)
+    #             return y
+    #     except Exception:
+    #         pass
 
     # 3. Universal multi-channel fallback via ffmpeg (handles mono, 5.1, 7.1, etc.)
     cmd = [
         "ffmpeg", "-y", "-i", filepath, "-vn", "-sn", "-dn",
-        "-af", "aresample=48000:resampler=soxr:cutoff=1:precision=33:dither_method=none:osf=flt",
+        "-af", "aresample=48000:resampler=soxr:cutoff=1:precision=33:dither_method=none:osf=flt,lowpass=20000:r=f32:transform=zdf,highpass=10:r=f32:transform=zdf",
         "-f", "wav", "-c:a", "pcm_f32le", "-map_metadata", "-1"
     ]
     if target_channels is not None:
