@@ -43,6 +43,7 @@ def load_audio(filepath, target_channels=None):
     cmd = [
         "ffmpeg", "-y", "-i", filepath, "-vn", "-sn", "-dn",
         "-af", "aresample=48000:resampler=soxr:cutoff=1:precision=33:dither_method=none:osf=flt,lowpass=20000:r=f32:transform=zdf,highpass=10:r=f32:transform=zdf",
+        # "-af", "aresample=48000:resampler=soxr:cutoff=1:precision=33:dither_method=none:osf=flt",
         "-f", "wav", "-c:a", "pcm_f32le", "-map_metadata", "-1"
     ]
     if target_channels is not None:
@@ -59,28 +60,58 @@ def load_audio(filepath, target_channels=None):
 
     return y
 
-def calculate_non_linear_score(mos, bitrate, threshold=5):
-    threshold_penalty = np.where(mos < threshold, np.exp(threshold - mos) - 1.0, 0.0)
-    bitrate_cost = 0.04 * np.log(bitrate + 1.0)
-    final_score = mos - bitrate_cost - threshold_penalty
-    return final_score
+# def calculate_non_linear_score(mos, bitrate, threshold=4.75):
+#     threshold_penalty = np.where(mos < threshold, np.exp(threshold - mos) - 1.0, 0.0)
+#     bitrate_cost = 0.04 * np.log(bitrate + 1.0)
+#     final_score = mos - bitrate_cost - threshold_penalty
+#     return final_score
 
-def get_bitrate(filepath):
-    cmd = [
-        "ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", filepath,
-    ]
-    try:
-        result = subprocess.run(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
-        )
-        data = json.loads(result.stdout)
-        return (
-            float(data["format"]["bit_rate"]) / 1000.0
-            if "bit_rate" in data["format"]
-            else 0.0
-        )
-    except Exception:
-        return 0.0
+def calculate_non_linear_score(
+    mos,
+    bitrate,
+    threshold=4.75,
+    quality_weight=1.0,
+    bitrate_weight=0.04,
+):
+    mos = np.asarray(mos, dtype=np.float64)
+    bitrate = np.asarray(bitrate, dtype=np.float64)
+
+    quality_penalty = quality_weight * np.expm1(
+        np.maximum(threshold - mos, 0.0)
+    )
+
+    bitrate_cost = bitrate_weight * np.log1p(bitrate)
+
+    return mos - quality_penalty - bitrate_cost
+
+def get_bitrate(filename):
+    def run(cmd): 
+        return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+
+    packets = json.loads(run(["ffprobe", "-v", "error", "-select_streams", "a:0",
+                              "-show_entries", "packet=size", "-of", "json", str(filename)]).stdout)
+    duration = float(run(["ffprobe", "-v", "error", "-select_streams", "a:0",
+                          "-show_entries", "stream=duration",
+                          "-of", "default=noprint_wrappers=1:nokey=1", str(filename)]).stdout)
+    size = sum(int(p["size"]) for p in packets["packets"] if "size" in p)
+    return size * 8 / duration / 1000
+
+# def get_bitrate(filepath):
+#     cmd = [
+#         "ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", filepath,
+#     ]
+#     try:
+#         result = subprocess.run(
+#             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True
+#         )
+#         data = json.loads(result.stdout)
+#         return (
+#             float(data["format"]["bit_rate"]) / 1000.0
+#             if "bit_rate" in data["format"]
+#             else 0.0
+#         )
+#     except Exception:
+#         return 0.0
 
 def main():
     parser = argparse.ArgumentParser(
@@ -127,10 +158,12 @@ def main():
             for c, future in enumerate(futures):
                 channel_scores[c].append(future.result())
 
-    mean_channel_scores = [float(np.mean(scores)) if scores else 0.0 for scores in channel_scores]
-    score = float(np.mean(mean_channel_scores)) if mean_channel_scores else 0.0
+    # mean_channel_scores = [float(np.mean(scores)) if scores else 0.0 for scores in channel_scores]
+    # score = float(np.mean(mean_channel_scores)) if mean_channel_scores else 0.0
     
     all_scores = [s for scores in channel_scores for s in scores]
+    score = float(np.mean(all_scores)) if all_scores else 0.0
+    median_score = float(np.median(all_scores)) if all_scores else 0.0
     min_score = float(np.min(all_scores)) if all_scores else 0.0
     
     bitrate = get_bitrate(args.lossy)
@@ -141,6 +174,7 @@ def main():
     print(f"min:{min_score:.6f}", end="\t")
     print(f"kbps:{bitrate:.3f}", end="\t")
     print(f"final:{final:.6f}", end="\t")
+    print(f"median:{median_score:.6f}", end="\t")
     print(f"reencode:{reencode}")
 
 if __name__ == "__main__":
