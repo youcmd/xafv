@@ -314,10 +314,10 @@ def find_optimal_bitrate(input_file, target_mos=4.6):
         current_target_mos = target_mos
 
         # # Minimum score requirement
-        # min_target = (4.88 if mean_kbps <= 64 
-        #               else 4.87 if mean_kbps < 96
-        #               else 4.86)
-        min_target = 4.86
+        min_target = (4.88 if mean_kbps <= 64 
+                      else 4.87 if mean_kbps < 96
+                      else 4.86)
+        # min_target = 4.86
 
         # Minimum score is a hard requirement
         if min_score < min_target:
@@ -372,13 +372,13 @@ def find_optimal_bitrate(input_file, target_mos=4.6):
             # prev_target = calculate_target_mos(target_mos, prev_bitrate)
             prev_target = target_mos
 
-            prev_min_target = 4.86
+            # prev_min_target = 4.86
 
-            # prev_min_target = (
-            #     4.88 if prev_bitrate <=64
-            #     else 4.87 if prev_bitrate <96
-            #     else 4.86
-            # )
+            prev_min_target = (
+                4.88 if prev_bitrate <=64
+                else 4.87 if prev_bitrate <96
+                else 4.86
+            )
 
             prev_min_score = min_scores.get(prev_b, 0.0)
 
