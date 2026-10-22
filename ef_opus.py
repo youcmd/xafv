@@ -288,37 +288,30 @@ def find_optimal_bitrate(
     if candidate is None:
         print("[!] No tested bitrate met both quality thresholds.")
 
-        # Evaluate the maximum bitrate if it has not been tested.
         max_bitrate = bitrate_ladder[-1]
-        evaluate(max_bitrate)
 
         if not passes(max_bitrate):
             print(
                 "[!] Maximum bitrate failed. "
-                "Checking for plateau..."
+                "Checking the upper bitrate range for a plateau..."
             )
 
-            # Only consider bitrates that have actually been tested.
-            tested = sorted(results)
+            # Check only the final seven ladder entries.
+            # For the current ladder: 124, 126, 128, 130, 132, 134, 136.
+            # evaluate() reuses cached measurements when available.
+            upper_range = bitrate_ladder[-7:]
+
+            for bitrate in upper_range:
+                evaluate(bitrate)
 
             plateau_bitrate = None
 
-            for prev_b, curr_b in zip(tested, tested[1:]):
-
-                # Only compare adjacent entries in the bitrate ladder.
-                if (
-                    bitrate_ladder.index(curr_b)
-                    != bitrate_ladder.index(prev_b) + 1
-                ):
-                    continue
-
-                # Only check for a plateau at 96 kbps and above.
-                if curr_b < 96:
-                    continue
-
-                score_diff = (
-                    results[curr_b] - results[prev_b]
-                )
+            # Compare consecutive entries in the upper range.
+            for prev_b, curr_b in zip(
+                upper_range,
+                upper_range[1:]
+            ):
+                score_diff = results[curr_b] - results[prev_b]
 
                 # Plateau: mean MOS gain is >= 0 and < 0.005.
                 if 0 <= score_diff < 0.005:
@@ -334,13 +327,14 @@ def find_optimal_bitrate(
 
             if plateau_bitrate is not None:
                 print(
-                    f"[+] Plateau bitrate: "
-                    f"{plateau_bitrate} kbps"
+                    f"[+] Plateau bitrate: {plateau_bitrate} kbps | "
+                    f"Mean MOS: {results[plateau_bitrate]:.4f} | "
+                    f"Min MOS: {min_scores[plateau_bitrate]:.4f}"
                 )
 
                 return plateau_bitrate
 
-            # No plateau: choose the best measured mean MOS.
+            # No plateau: select the measured bitrate with the highest mean MOS.
             print(
                 "[!] No plateau detected. "
                 "Selecting the tested bitrate with the highest mean MOS."
@@ -352,7 +346,8 @@ def find_optimal_bitrate(
             )
 
             print(
-                f"[+] Best measured bitrate: {best_bitrate} kbps | "
+                f"[+] Fallback selection: {best_bitrate} kbps | "
+                f"Actual: {bitrates[best_bitrate]:.2f} kbps | "
                 f"Mean MOS: {results[best_bitrate]:.4f} | "
                 f"Min MOS: {min_scores[best_bitrate]:.4f}"
             )
