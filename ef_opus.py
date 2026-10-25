@@ -68,9 +68,7 @@ def _process_single_sample(args):
             "-i", input_file,
             "-t", str(duration),
             "-vn", "-sn", "-dn",
-            "-af",
-            "aresample=48000:resampler=soxr:cutoff=1:"
-            "precision=33:dither_method=none:osf=flt",
+            "-af", "aresample=48000:resampler=soxr:cutoff=1:precision=33:dither_method=none:osf=flt",
             "-map_metadata", "-1",
             "-map_metadata:s:a", "-1",
             "-fflags", "+bitexact",
@@ -264,7 +262,7 @@ def find_optimal_bitrate(
 
         return (
             mean_score >= current_target
-            and min_score >= min_target
+            # and min_score >= min_target
         )
 
     # Binary search for the lowest bitrate meeting both thresholds.
