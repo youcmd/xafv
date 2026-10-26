@@ -1,18 +1,15 @@
 import os
-import time
 import subprocess
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 XOMPARE_SCRIPT = "/content/py/xompare.py"
+MAX_WORKERS = 6
 
 
 def run(cmd):
     return subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        check=True
+        cmd, capture_output=True, text=True, check=True
     )
 
 
@@ -25,58 +22,61 @@ def get_audio_duration(filename):
     ])
 
     duration = float(result.stdout.strip())
-
     if duration <= 0:
         raise ValueError(f"Invalid audio duration: {filename}")
 
     return duration
 
 
-def get_adaptive_samples(filename, sample_duration=10, max_samples=12):
-    total_duration = get_audio_duration(filename)
-    samples = int(total_duration // sample_duration)
+def get_adaptive_samples(filename, sample_duration=10, max_samples=12,
+                         total_duration=None):
+    if total_duration is None:
+        total_duration = get_audio_duration(filename)
 
-    return max(1, min(max_samples, samples))
+    return max(1, min(max_samples, int(total_duration // sample_duration)))
 
 
-def extract_multiple_samples(input_file, num_samples=4, duration=10):
-    total_duration = get_audio_duration(input_file)
+def extract_multiple_samples(input_file, num_samples=4, duration=10,
+                             total_duration=None):
+    if total_duration is None:
+        total_duration = get_audio_duration(input_file)
+
     duration = min(float(duration), total_duration)
     num_samples = max(1, int(num_samples))
 
     if num_samples == 1 or total_duration <= duration:
         return [max(0.0, (total_duration - duration) / 2)]
 
-    # Distribute samples evenly without exceeding audio boundaries.
-    return np.linspace(
-        0,
-        total_duration - duration,
-        num_samples
-    ).tolist()
+    return np.linspace(0, total_duration - duration, num_samples).tolist()
+
+
+def _extract_reference(args):
+    i, timestamp, input_file, duration, cache_dir = args
+    ref_sample = os.path.join(cache_dir, f"ref_{i}.wav")
+
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-ss", str(timestamp),
+        "-i", input_file,
+        "-t", str(duration),
+        "-vn", "-sn", "-dn",
+        "-af", "aresample=48000:resampler=soxr:cutoff=1:precision=33:dither_method=none:osf=flt",
+        "-map_metadata", "-1",
+        "-map_metadata:s:a", "-1",
+        "-fflags", "+bitexact",
+        "-flags:a", "+bitexact",
+        "-c:a", "pcm_f32le",
+        ref_sample
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
+
+    return ref_sample
 
 
 def _process_single_sample(args):
-    i, timestamp, input_file, bitrate, duration = args
-
-    ref_sample = f"temp_ref_{os.getpid()}_{i}.wav"
-    test_encoded = f"temp_test_{os.getpid()}_{bitrate}k_{i}.opus"
+    i, ref_sample, bitrate = args
+    test_encoded = f"{ref_sample[:-4]}_{bitrate}k.opus"
 
     try:
-        subprocess.run([
-            "ffmpeg", "-y",
-            "-ss", str(timestamp),
-            "-i", input_file,
-            "-t", str(duration),
-            "-vn", "-sn", "-dn",
-            "-af", "aresample=48000:resampler=soxr:cutoff=1:precision=33:dither_method=none:osf=flt",
-            "-map_metadata", "-1",
-            "-map_metadata:s:a", "-1",
-            "-fflags", "+bitexact",
-            "-flags:a", "+bitexact",
-            "-c:a", "pcm_f32le",
-            ref_sample
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
-
         subprocess.run([
             "opusenc", "--quiet",
             "--bitrate", str(bitrate),
@@ -85,28 +85,22 @@ def _process_single_sample(args):
         ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
 
         result = run([
-            "python",
-            XOMPARE_SCRIPT,
-            test_encoded,
-            ref_sample,
+            "python", XOMPARE_SCRIPT,
+            test_encoded, ref_sample,
             "--skip_duration", "0"
         ])
 
         metrics = {}
-
         for part in result.stdout.strip().split("\t"):
             if ":" in part:
                 key, value = part.split(":", 1)
-
                 try:
                     metrics[key.strip()] = float(value.strip())
                 except ValueError:
                     pass
 
         if "Score" not in metrics or "min" not in metrics:
-            raise ValueError(
-                f"Could not parse xompare output: {result.stdout}"
-            )
+            raise ValueError(f"Could not parse xompare output: {result.stdout}")
 
         return {
             "score": metrics["Score"],
@@ -116,31 +110,28 @@ def _process_single_sample(args):
         }
 
     finally:
-        for filename in (ref_sample, test_encoded):
-            if os.path.exists(filename):
-                os.remove(filename)
+        if os.path.exists(test_encoded):
+            os.remove(test_encoded)
 
 
-def evaluate_multiple_samples(input_file, bitrate, timestamps, duration=10):
+def evaluate_multiple_samples(input_file, bitrate, timestamps, duration=10,
+                              reference_samples=None):
     if not timestamps:
         raise ValueError("At least one sample timestamp is required.")
 
+    if reference_samples is None:
+        raise ValueError("Reference samples must be extracted before evaluation.")
+
     tasks = [
-        (i, ts, input_file, bitrate, duration)
-        for i, ts in enumerate(timestamps)
+        (i, ref_sample, bitrate)
+        for i, ref_sample in enumerate(reference_samples)
     ]
 
     results = []
-
     with ThreadPoolExecutor(
-        max_workers=min(len(tasks), os.cpu_count() or 2)
+        max_workers=min(len(tasks), MAX_WORKERS)
     ) as executor:
-
-        futures = [
-            executor.submit(_process_single_sample, task)
-            for task in tasks
-        ]
-
+        futures = [executor.submit(_process_single_sample, task) for task in tasks]
         for future in as_completed(futures):
             results.append(future.result())
 
@@ -160,19 +151,14 @@ def evaluate_multiple_samples(input_file, bitrate, timestamps, duration=10):
 def calculate_target_mos(target_mos, current_bitrate):
     if current_bitrate <= 48:
         return target_mos + 0.04
-
     if current_bitrate <= 56:
         return target_mos + 0.02
-
     if current_bitrate <= 64:
         return target_mos + 0.01
-
     if current_bitrate >= 128:
         return target_mos - 0.02
-
     if current_bitrate >= 96:
         return target_mos - 0.01
-
     return target_mos
 
 
@@ -190,182 +176,216 @@ def find_optimal_bitrate(
         + list(range(128, 137, 2))
     )
 
-    # Adapt even when num_samples is explicitly provided.
+    total_duration = get_audio_duration(input_file)
     requested_samples = max_samples if num_samples is None else num_samples
-
     num_samples = get_adaptive_samples(
-        input_file,
-        sample_duration,
-        requested_samples
+        input_file, sample_duration, requested_samples, total_duration
     )
-
     timestamps = extract_multiple_samples(
-        input_file,
-        num_samples,
-        sample_duration
+        input_file, num_samples, sample_duration, total_duration
     )
 
     print(
-        f"[*] Duration: {get_audio_duration(input_file):.1f}s | "
+        f"[*] Duration: {total_duration:.1f}s | "
         f"Sample duration: {sample_duration}s | "
         f"Samples: {len(timestamps)}"
     )
 
-    results = {}
-    min_scores = {}
-    bitrates = {}
+    results, min_scores, bitrates = {}, {}, {}
+    cache_dir = f"temp_refs_{os.getpid()}"
+    os.makedirs(cache_dir, exist_ok=True)
 
-    def evaluate(bitrate):
-        if bitrate not in results:
-            print(
-                f"[*] Testing {bitrate} kbps "
-                f"({len(timestamps)} samples)...",
-                end=" ",
-                flush=True
-            )
+    try:
+        with ThreadPoolExecutor(
+            max_workers=min(len(timestamps), MAX_WORKERS)
+        ) as executor:
+            reference_samples = list(executor.map(
+                _extract_reference,
+                [
+                    (i, ts, input_file, sample_duration, cache_dir)
+                    for i, ts in enumerate(timestamps)
+                ]
+            ))
 
-            metrics = evaluate_multiple_samples(
-                input_file,
-                bitrate,
-                timestamps,
-                sample_duration
-            )
-
-            results[bitrate] = metrics["mean_score"]
-            min_scores[bitrate] = metrics["lowest_min_score"]
-            bitrates[bitrate] = metrics["mean_kbps"]
-
-            print(
-                f"Mean: {metrics['mean_score']:.4f} | "
-                f"Min: {metrics['lowest_min_score']:.4f} | "
-                f"kbps: {metrics['mean_kbps']:.2f} | "
-                f"final: {metrics['mean_final']:.4f}"
-            )
-
-        return results[bitrate], min_scores[bitrate]
-
-    def passes(bitrate):
-        mean_score, min_score = evaluate(bitrate)
-
-        actual_kbps = bitrates[bitrate]
-
-        min_target = (
-            4.88 if actual_kbps <= 64
-            else 4.87 if actual_kbps < 96
-            else 4.86
-        )
-
-        current_target = calculate_target_mos(
-            target_mos,
-            actual_kbps
-        )
-
-        return (
-            mean_score >= current_target
-            # and min_score >= min_target
-        )
-
-    # Binary search for the lowest bitrate meeting both thresholds.
-    low = 0
-    high = len(bitrate_ladder) - 1
-    candidate = None
-
-    while low <= high:
-        mid = (low + high) // 2
-        bitrate = bitrate_ladder[mid]
-
-        if passes(bitrate):
-            candidate = bitrate
-            high = mid - 1
-        else:
-            low = mid + 1
-
-    # ==========================================================
-    # TARGET NOT REACHED: CHECK FOR A PLATEAU
-    # ==========================================================
-    if candidate is None:
-        print("[!] No tested bitrate met both quality thresholds.")
-
-        max_bitrate = bitrate_ladder[-1]
-
-        if not passes(max_bitrate):
-            print(
-                "[!] Maximum bitrate failed. "
-                "Checking the upper bitrate range for a plateau..."
-            )
-
-            # Check only the final seven ladder entries.
-            # For the current ladder: 124, 126, 128, 130, 132, 134, 136.
-            # evaluate() reuses cached measurements when available.
-            upper_range = bitrate_ladder[-7:]
-
-            for bitrate in upper_range:
-                evaluate(bitrate)
-
-            plateau_bitrate = None
-
-            # Compare consecutive entries in the upper range.
-            for prev_b, curr_b in zip(
-                upper_range,
-                upper_range[1:]
-            ):
-                score_diff = results[curr_b] - results[prev_b]
-
-                # Plateau: mean MOS gain is >= 0 and < 0.005.
-                if 0 <= score_diff < 0.005:
-                    plateau_bitrate = prev_b
-
-                    print(
-                        f"[*] Plateau detected: "
-                        f"{prev_b} -> {curr_b} kbps "
-                        f"(gain: {score_diff:.4f})"
-                    )
-
-                    break
-
-            if plateau_bitrate is not None:
+        def evaluate(bitrate):
+            if bitrate not in results:
                 print(
-                    f"[+] Plateau bitrate: {plateau_bitrate} kbps | "
-                    f"Mean MOS: {results[plateau_bitrate]:.4f} | "
-                    f"Min MOS: {min_scores[plateau_bitrate]:.4f}"
+                    f"[*] Testing {bitrate} kbps "
+                    f"({len(timestamps)} samples)...",
+                    end=" ", flush=True
                 )
 
-                return plateau_bitrate
+                metrics = evaluate_multiple_samples(
+                    input_file, bitrate, timestamps, sample_duration,
+                    reference_samples=reference_samples
+                )
 
-            # No plateau: select the measured bitrate with the highest mean MOS.
-            print(
-                "[!] No plateau detected. "
-                "Selecting the tested bitrate with the highest mean MOS."
+                results[bitrate] = metrics["mean_score"]
+                min_scores[bitrate] = metrics["lowest_min_score"]
+                bitrates[bitrate] = metrics["mean_kbps"]
+
+                print(
+                    f"Mean: {metrics['mean_score']:.4f} | "
+                    f"Min: {metrics['lowest_min_score']:.4f} | "
+                    f"kbps: {metrics['mean_kbps']:.2f} | "
+                    f"final: {metrics['mean_final']:.4f}"
+                )
+
+            return results[bitrate], min_scores[bitrate]
+
+        def passes(bitrate):
+            mean_score, _ = evaluate(bitrate)
+            return mean_score >= calculate_target_mos(
+                target_mos, bitrates[bitrate]
             )
 
-            best_bitrate = max(
-                results,
-                key=lambda b: results[b]
-            )
+        def interpolate_bitrate(b1, b2):
+            """Estimate the target crossing between a failing and passing bitrate."""
+            d1 = results[b1] - calculate_target_mos(target_mos, bitrates[b1])
+            d2 = results[b2] - calculate_target_mos(target_mos, bitrates[b2])
 
-            print(
-                f"[+] Fallback selection: {best_bitrate} kbps | "
-                f"Actual: {bitrates[best_bitrate]:.2f} kbps | "
-                f"Mean MOS: {results[best_bitrate]:.4f} | "
-                f"Min MOS: {min_scores[best_bitrate]:.4f}"
-            )
+            if d1 >= 0 or d2 < 0 or d1 == d2:
+                return None
 
-            return best_bitrate
+            estimate = b1 - d1 * (b2 - b1) / (d2 - d1)
 
-    # ==========================================================
-    # TARGET REACHED: SELECT THE LOWEST PASSING BITRATE
-    # ==========================================================
-    candidate_index = bitrate_ladder.index(candidate)
+            choices = [
+                b for b in bitrate_ladder
+                if b1 < b < b2 and b not in results
+            ]
 
-    if candidate_index > 0:
-        previous = bitrate_ladder[candidate_index - 1]
+            return min(choices, key=lambda b: abs(b - estimate)) if choices else None
 
-        if passes(previous):
-            candidate = previous
+        # ==========================================================
+        # SEARCH: INTERPOLATION + BINARY-SEARCH FALLBACK
+        # ==========================================================
+        fail_idx = None
+        pass_idx = None
+        candidate = None
+        ladder_size = len(bitrate_ladder)
 
-    print(f"[+] Selected bitrate: {candidate} kbps")
+        while True:
+            # Keep the measured failing/passing boundaries independently
+            # of the next search interval.
+            if fail_idx is not None and pass_idx is not None:
+                if fail_idx >= pass_idx:
+                    # Measurements contradict the monotonic-curve assumption.
+                    # Keep the lowest passing bitrate found.
+                    candidate = bitrate_ladder[pass_idx]
+                    break
 
-    return candidate
+                if pass_idx - fail_idx == 1:
+                    candidate = bitrate_ladder[pass_idx]
+                    break
+
+                low_idx, high_idx = fail_idx + 1, pass_idx - 1
+
+                # Interpolate inside the known failing/passing bracket.
+                bitrate = interpolate_bitrate(
+                    bitrate_ladder[fail_idx],
+                    bitrate_ladder[pass_idx]
+                )
+
+            elif pass_idx is None:
+                low_idx = fail_idx + 1 if fail_idx is not None else 0
+                high_idx = ladder_size - 1
+                bitrate = None
+
+            else:
+                low_idx, high_idx = 0, pass_idx - 1
+                bitrate = None
+
+                if high_idx < low_idx:
+                    candidate = bitrate_ladder[pass_idx]
+                    break
+
+            # If interpolation cannot choose a useful point, use binary search.
+            if bitrate is None:
+                untested = [
+                    i for i in range(low_idx, high_idx + 1)
+                    if bitrate_ladder[i] not in results
+                ]
+
+                if not untested:
+                    if pass_idx is not None:
+                        candidate = bitrate_ladder[pass_idx]
+                    break
+
+                midpoint = (low_idx + high_idx) // 2
+                idx = min(untested, key=lambda i: abs(i - midpoint))
+                bitrate = bitrate_ladder[idx]
+
+            passed = passes(bitrate)
+            idx = bitrate_ladder.index(bitrate)
+
+            if passed:
+                pass_idx = idx if pass_idx is None else min(pass_idx, idx)
+            else:
+                fail_idx = idx if fail_idx is None else max(fail_idx, idx)
+
+        # ==========================================================
+        # TARGET NOT REACHED: CHECK FOR A PLATEAU
+        # ==========================================================
+        if candidate is None:
+            print("[!] No tested bitrate met both quality thresholds.")
+            max_bitrate = bitrate_ladder[-1]
+
+            if not passes(max_bitrate):
+                print(
+                    "[!] Maximum bitrate failed. "
+                    "Checking the upper bitrate range for a plateau..."
+                )
+
+                upper_range = bitrate_ladder[-7:]
+
+                for bitrate in upper_range:
+                    evaluate(bitrate)
+
+                plateau_bitrate = None
+
+                for prev_b, curr_b in zip(upper_range, upper_range[1:]):
+                    score_diff = results[curr_b] - results[prev_b]
+
+                    if 0 <= score_diff < 0.005:
+                        plateau_bitrate = prev_b
+                        print(
+                            f"[*] Plateau detected: {prev_b} -> {curr_b} kbps "
+                            f"(gain: {score_diff:.4f})"
+                        )
+                        break
+
+                if plateau_bitrate is not None:
+                    print(
+                        f"[+] Plateau bitrate: {plateau_bitrate} kbps | "
+                        f"Mean MOS: {results[plateau_bitrate]:.4f} | "
+                        f"Min MOS: {min_scores[plateau_bitrate]:.4f}"
+                    )
+                    return plateau_bitrate
+
+                print(
+                    "[!] No plateau detected. "
+                    "Selecting the tested bitrate with the highest mean MOS."
+                )
+
+                best_bitrate = max(results, key=lambda b: results[b])
+
+                print(
+                    f"[+] Fallback selection: {best_bitrate} kbps | "
+                    f"Actual: {bitrates[best_bitrate]:.2f} kbps | "
+                    f"Mean MOS: {results[best_bitrate]:.4f} | "
+                    f"Min MOS: {min_scores[best_bitrate]:.4f}"
+                )
+
+                return best_bitrate
+
+            candidate = max_bitrate
+
+        print(f"[+] Selected bitrate: {candidate} kbps")
+        return candidate
+
+    finally:
+        import shutil
+        shutil.rmtree(cache_dir, ignore_errors=True)
 
 
 def benchmark_sampling(input_file, target_mos=4.91, configs=None):
