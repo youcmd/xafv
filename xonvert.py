@@ -133,7 +133,7 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         if bd == 16 and sr <= 48000 and float(preamp) == 0.0 and not resample_needed:
             run_command(['flac', '-8', '-p', '-s', '-V', '-f', '-o', output_path, input_path])
         else:
-            cmd = (f'sox "{input_path}" {no_dither} -G -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | '
+            cmd = (f'sox -t sndfile "{input_path}" {no_dither} -G -e signed-integer -b {bit_depth} -t wav -L - {rate_arg} | '
                    f'flac -8 -p -s -V -f -o "{output_path}" -')
             run_command(cmd)
         
@@ -157,7 +157,7 @@ def process_audio(codec, bit_depth, input_path, output_path, bitrate=None, pream
         if fmt != "s32" and sr <= 48000 and bd <= 32 and float(preamp) == 0.0 :
             cmd = (f'opusenc --quiet {br_arg} "{input_path}" "{output_path}"')
         else: #use sox if wav is s32 or preamp !=0
-            cmd = (f'sox "{input_path}" -D -G -e floating-point -b 32 -L -t wav - {effects_str} | '
+            cmd = (f'sox -t sndfile "{input_path}" -D -G -e floating-point -b 32 -L -t wav - {effects_str} | '
                    f'opusenc --quiet {br_arg} - "{output_path}"')
         
         run_command(cmd)
